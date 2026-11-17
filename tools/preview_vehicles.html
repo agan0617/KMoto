@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KMoto 車輛預覽</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#eee;font:13px/1.5 "Noto Sans TC","Microsoft JhengHei",sans-serif;overflow:hidden}
+  canvas{display:block}
+  #ui{position:fixed;top:8px;left:8px;background:rgba(0,0,0,.6);padding:8px 10px;border-radius:8px;max-height:calc(100% - 32px);overflow:auto}
+  #ui button{margin:2px;padding:3px 8px;background:#333;color:#eee;border:1px solid #555;border-radius:5px;cursor:pointer}
+  #ui button.on{background:#d9480f;border-color:#d9480f}
+  #list{margin-top:6px;white-space:pre;font-family:Consolas,monospace;font-size:12px}
+</style>
+<script type="importmap">
+{ "imports": { "three": "../lib/three/three.module.js", "three/addons/": "../lib/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="ui">
+  <div>
+    <button id="day" class="on">白天</button><button id="night">夜晚</button>
+    <button id="brake">煞車燈</button><button id="blink">雙黃燈</button><button id="door">開門</button><button id="spin">轉輪</button>
+  </div>
+  <div id="views"></div>
+  <div id="list"></div>
+</div>
+<script type="module" src="preview_vehicles.js"></script>
+</body>
+</html>

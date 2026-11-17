@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KMoto 企劃規格</title>
+<style>
+:root{
+  --bg:#f7f7f5; --paper:#ffffff; --ink:#1d1f23; --muted:#5d636e; --line:#e2e3e0;
+  --accent:#d9480f; --accent-soft:#fdeee6; --warn:#b5590e; --warn-soft:#fdf1e6;
+  --ok:#1f8a4c; --ok-soft:#e6f5ec; --code:#f1f2ef;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16181c; --paper:#1e2126; --ink:#e7e9ec; --muted:#9aa1ad; --line:#30343b;
+    --accent:#ff8a5c; --accent-soft:#3a2219; --warn:#f0a35e; --warn-soft:#3a2a1b;
+    --ok:#5fd08f; --ok-soft:#1b3326; --code:#262a31;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16181c; --paper:#1e2126; --ink:#e7e9ec; --muted:#9aa1ad; --line:#30343b;
+  --accent:#ff8a5c; --accent-soft:#3a2219; --warn:#f0a35e; --warn-soft:#3a2a1b;
+  --ok:#5fd08f; --ok-soft:#1b3326; --code:#262a31;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.75 "Noto Sans TC","Microsoft JhengHei","PingFang TC",system-ui,sans-serif}
+.layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:32px;max-width:1240px;margin:0 auto;padding:32px 24px}
+nav.toc{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;font-size:14px}
+nav.toc .title{font-weight:700;margin-bottom:8px}
+nav.toc ol{list-style:none;padding:0;margin:0}
+nav.toc ol ol{padding-left:14px}
+nav.toc a{display:block;padding:3px 8px;border-radius:6px;color:var(--muted);text-decoration:none}
+nav.toc a:hover{background:var(--accent-soft);color:var(--accent)}
+main{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:40px 48px;min-width:0}
+header.doc h1{font-size:30px;line-height:1.3;margin:0 0 6px}
+header.doc .sub{color:var(--muted);margin:0 0 20px}
+dl.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:0 0 8px;font-size:14px}
+dl.meta dt{color:var(--muted)} dl.meta dd{margin:0}
+h2{font-size:22px;margin:48px 0 12px;padding-top:12px;border-top:2px solid var(--line)}
+h3{font-size:18px;margin:28px 0 8px}
+h4{font-size:16px;margin:20px 0 6px;color:var(--muted)}
+p,ul,ol{margin:8px 0}
+li{margin:3px 0}
+a{color:var(--accent)}
+code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:.9em;font-family:Consolas,"Cascadia Mono",monospace}
+.table-wrap{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--code);font-weight:600;white-space:nowrap}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.note{border-left:4px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+.warn{border-left:4px solid var(--warn);background:var(--warn-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
+#changelog td:nth-child(5){min-width:120px;max-width:200px;font-size:13px}
+#changelog td:nth-child(6){min-width:340px}
+.tag{display:inline-block;white-space:nowrap;font-size:12px;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-right:4px}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
+.flow span{border:1px solid var(--line);background:var(--code);border-radius:8px;padding:4px 12px;font-size:14px}
+.flow b{color:var(--muted);font-weight:400}
+ul.check{list-style:none;padding-left:0}
+ul.check li::before{content:"☐ ";color:var(--muted)}
+footer{margin-top:48px;color:var(--muted);font-size:13px}
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr;padding:16px}
+  nav.toc{position:static;max-height:none;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:12px}
+  main{padding:24px 18px}
+}
+@media print{
+  body{background:#fff}
+  .layout{display:block;padding:0}
+  nav.toc{display:none}
+  main{border:none;padding:0}
+  h2{break-after:avoid} table{break-inside:auto} tr{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+  <div class="title">目錄</div>
+  <ol>
+    <li><a href="#s0">0. 規格變更流程</a></li>
+    <li><a href="#s1">1. 遊戲概要</a></li>
+    <li><a href="#s2">2. 畫面與遊戲流程</a>
+      <ol>
+        <li><a href="#s2-1">2.1 畫面流程</a></li>
+        <li><a href="#s2-2">2.2 首頁與選關</a></li>
+        <li><a href="#s2-3">2.3 關卡開場</a></li>
+        <li><a href="#s2-4">2.4 騎乘中</a></li>
+        <li><a href="#s2-5">2.5 暫停選單</a></li>
+        <li><a href="#s2-6">2.6 結算頁</a></li>
+        <li><a href="#s2-7">2.7 其他畫面</a></li>
+      </ol></li>
+    <li><a href="#s3">3. 通關規則</a>
+      <ol>
+        <li><a href="#s3-1">3.1 時限與抵達</a></li>
+        <li><a href="#s3-2">3.2 星等</a></li>
+        <li><a href="#s3-3">3.3 擦身而過</a></li>
+        <li><a href="#s3-4">3.4 個人紀錄</a></li>
+      </ol></li>
+    <li><a href="#s4">4. 操控與機車物理</a>
+      <ol>
+        <li><a href="#s4-1">4.1 輸入</a></li>
+        <li><a href="#s4-2">4.2 速度</a></li>
+        <li><a href="#s4-3">4.3 轉向與傾車</a></li>
+        <li><a href="#s4-4">4.4 衝刺</a></li>
+        <li><a href="#s4-5">4.5 喇叭</a></li>
+        <li><a href="#s4-6">4.6 碰撞</a></li>
+        <li><a href="#s4-7">4.7 摔車與復位</a></li>
+      </ol></li>
+    <li><a href="#s5">5. 交通與障礙</a>
+      <ol>
+        <li><a href="#s5-1">5.1 車種</a></li>
+        <li><a href="#s5-2">5.2 一般車流</a></li>
+        <li><a href="#s5-3">5.3 路口與紅綠燈</a></li>
+        <li><a href="#s5-4">5.4 三寶事件</a></li>
+        <li><a href="#s5-5">5.5 路面障礙</a></li>
+        <li><a href="#s5-6">5.6 天候</a></li>
+        <li><a href="#s5-7">5.7 難度怎麼由障礙控制</a></li>
+        <li><a href="#s5-8">5.8 台灣交通亂象對照</a></li>
+      </ol></li>
+    <li><a href="#s6">6. 道路與街景</a>
+      <ol>
+        <li><a href="#s6-1">6.1 路線幾何</a></li>
+        <li><a href="#s6-2">6.2 路段種類</a></li>
+        <li><a href="#s6-3">6.3 台灣街景元素</a></li>
+        <li><a href="#s6-4">6.4 起點與目的地</a></li>
+        <li><a href="#s6-5">6.5 時段與光線</a></li>
+      </ol></li>
+    <li><a href="#s7">7. 關卡</a>
+      <ol>
+        <li><a href="#s7-1">7.1 章節</a></li>
+        <li><a href="#s7-2">7.2 關卡總表</a></li>
+        <li><a href="#s7-3">7.3 關卡文案</a></li>
+      </ol></li>
+    <li><a href="#s8">8. 介面</a></li>
+    <li><a href="#s9">9. 美術與音效</a></li>
+    <li><a href="#s10">10. 非功能需求</a></li>
+    <li><a href="#s11">11. 驗收標準</a></li>
+    <li><a href="#changelog">附錄. 版本歷史</a></li>
+  </ol>
+</nav>
+<main>
+<header class="doc">
+  <h1>KMoto 企劃規格</h1>
+  <p class="sub">騎機車在台灣街頭高速狂奔、閃避車流與三寶的 3D 網頁遊戲</p>
+  <dl class="meta">
+    <dt>規格版本</dt><dd>1.1</dd>
+    <dt>對應遊戲版本</dt><dd>1.0.0（<code>js/version.js</code>）</dd>
+    <dt>最後更新</dt><dd>2026-11-17</dd>
+    <dt>負責人</dt><dd>Ken</dd>
+    <dt>狀態</dt><dd>現行</dd>
+  </dl>
+</header>
+
+<h2 id="s0">0. 規格變更流程</h2>
+<p>這份是遊戲的<b>正本規格</b>：程式照規格做，規格沒寫的行為不算需求。之後任何玩法、數值、畫面的改動，一律依下列順序：</p>
+<div class="flow"><span>① 改規格</span><b>→</b><span>② Ken 確認</span><b>→</b><span>③ 實作</span><b>→</b><span>④ 依驗收標準驗收</span><b>→</b><span>⑤ 發版</span></div>
+<ul>
+  <li><b>改規格</b>：在對應章節直接改成新的現行內容；規格版本號 +0.1（大改版 +1.0），在〈版本歷史〉加一列。</li>
+  <li><b>實作</b>：程式只做規格寫到的；實作中發現規格不可行，先回頭改規格再繼續，不讓程式和規格分岔。</li>
+  <li><b>數值校準</b>：標著「初始值，實作後校準」的數字，以無頭模擬（<code>node tools/sim.mjs</code>）與實玩校準後改寫成實測值，並記在版本歷史。</li>
+  <li>本文只寫<b>現行規格</b>；改了什麼、為什麼改，只寫在〈版本歷史〉。</li>
+</ul>
+
+<h2 id="s1">1. 遊戲概要</h2>
+<div class="table-wrap"><table>
+<tr><th>名稱</th><td>KMoto（中文副標「台灣街頭機車狂飆」）</td></tr>
+<tr><th>類型</th><td>3D 第三人稱機車競速閃避（街機式物理）</td></tr>
+<tr><th>定位</th><td>騎機車在<b>很像台灣</b>的街道上用高速狂奔，在車陣、三寶與路面障礙之間鑽來鑽去，趕在時限內抵達目的地。</td></tr>
+<tr><th>核心體驗</th><td>
+<ul>
+<li><b>快</b>：機車自動催油，一般極速 100 km/h、衝刺 140 km/h；在巷弄、夜市、大馬路上用不合理的速度狂奔。</li>
+<li><b>閃</b>：玩家只管左右閃與煞車。車流擋路要鑽縫，三寶會突然切出來、開車門、逆向、迴轉，每種都有<b>看得出來的預兆</b>，反應得過來才公平。</li>
+<li><b>賭</b>：貼著車身擦過去（擦身而過）會累積衝刺；越敢鑽越快，但撞上就摔車、丟好幾秒。</li>
+<li><b>趕</b>：每關一個生活主題（老婆快生了、上班打卡、追垃圾車…），倒數計時，抵達目的地才算過關。</li>
+</ul></td></tr>
+<tr><th>難度設計</th><td><b>難度由障礙控制</b>：關卡越後面，車流越密、三寶種類越多、出現頻率越高、路面障礙越多；機車性能每關都一樣（見 5.7）。</td></tr>
+<tr><th>內容量</th><td>5 章、20 關（7.2）；22 種三寶事件＋5 種路面障礙（第 5 章）；全部關卡一開始就能玩，不鎖關。</td></tr>
+<tr><th>一關多長</th><td>路線 1.4～3.6 公里，順利騎完約 1～2.5 分鐘。</td></tr>
+<tr><th>玩家角色</th><td>騎一台白紅配色的 125cc 速克達、戴半罩安全帽的騎士；腳踏板上站著 Komugi（戴耳機的柴犬）。</td></tr>
+<tr><th>平台</th><td>網頁版（GitHub Pages 靜態網站，桌機與手機瀏覽器）；Android App 外殼 KMotoApp（WebView 包網頁版，另一個 repo）。</td></tr>
+<tr><th>單位</th><td>1 單位＝1 公尺；速度 m/s，儀表顯示 km/h（×3.6）；時間秒。</td></tr>
+</table></div>
+
+<h2 id="s2">2. 畫面與遊戲流程</h2>
+<h3 id="s2-1">2.1 畫面流程</h3>
+<div class="flow"><span>載入</span><b>→</b><span>首頁（選章節、選關）</span><b>→</b><span>關卡開場卡</span><b>→</b><span>倒數 3 秒</span><b>→</b><span>騎乘</span><b>→</b><span>結算頁</span><b>→</b><span>再挑戰／下一關／回首頁</span></div>
+<p>載入時畫面中央顯示「載入中… N%」（字型、貼圖產生、天空圖）。</p>
+
+<h3 id="s2-2">2.2 首頁與選關</h3>
+<p>背景是第 1 關的街景，鏡頭沿街道緩慢前進（每秒 6 公尺），車流照常在跑。</p>
+<div class="table-wrap"><table>
+<tr><th>元素</th><th>位置</th><th>內容與行為</th></tr>
+<tr><td>標題</td><td>左上</td><td>「KMoto」大字，下面「台灣街頭機車狂飆」</td></tr>
+<tr><td>章節分頁</td><td>標題下方</td><td>五個分頁（7.1），顯示章名與該章已拿星數「★ n/12」</td></tr>
+<tr><td>關卡卡片</td><td>分頁下方，一排 4 張</td><td>每張顯示「1-1」編號、關卡標題、時段圖示（☀ 白天／🌇 黃昏／🌙 夜晚／🌧 雨）、星等（拿到的實心，沒拿到的空心，共 3 顆）、最佳「剩 12.3 秒」。點一下開該關的開場卡。</td></tr>
+<tr><td>總星數</td><td>右上</td><td>「★ 總計 n/60」</td></tr>
+<tr><td>設定、操作說明</td><td>右上</td><td>設定（畫質、音量）、操作說明對話框</td></tr>
+<tr><td>版本號</td><td>右下角</td><td>「v1.0.0」</td></tr>
+</table></div>
+<p>上次選的章節會記住。</p>
+
+<h3 id="s2-3">2.3 關卡開場</h3>
+<ul>
+<li>開場卡：關卡編號與標題、一兩句主題文案（7.3）、目的地、時限、星等門檻（★★ 剩 X 秒、★★★ 剩 Y 秒且不摔車）。</li>
+<li>這關<b>新出現的障礙</b>（第一次在這關出現的三寶或路面障礙）各用一行介紹：名稱＋一句「怎麼看出來」（例：「開門殺：路邊停的車亮煞車燈、駕駛在動，就是要開門了」）。</li>
+<li>按「出發」→ 載入這關的街景 → 倒數 3 秒（3、2、1 各一聲短嗶，GO 長嗶），倒數中車不動。</li>
+<li>每次挑戰同一關，路線、車流與事件都相同（固定亂數種子），可以背關。</li>
+</ul>
+
+<h3 id="s2-4">2.4 騎乘中</h3>
+<p>HUD 見第 8 章。觸發：</p>
+<ul>
+<li>剩下 10 秒：時間變紅並每秒嗶一聲。</li>
+<li>距離目的地 300 公尺：中央彈出「目的地就在前面！」，目的地建築上方出現紅色定位標記。</li>
+<li>越過終點線（路線長度 L）：慢動作 0.6 秒後進結算頁。</li>
+<li>時間歸零：機車自動煞停，彈出「來不及了…」1.5 秒後進結算頁（失敗）。</li>
+<li>網頁切到背景或按暫停：進暫停選單。</li>
+</ul>
+
+<h3 id="s2-5">2.5 暫停選單</h3>
+<p>物理與計時完全停止。按鈕：繼續、重新開始（同關重來）、操作說明、設定、回首頁。暫停中再按暫停鍵＝繼續。</p>
+
+<h3 id="s2-6">2.6 結算頁</h3>
+<div class="table-wrap"><table>
+<tr><th>項目</th><th>過關</th><th>失敗</th></tr>
+<tr><td>標題</td><td>「趕上了！」（黃字）</td><td>「來不及了…」（灰字）</td></tr>
+<tr><td>文案</td><td>該關的過關文案（7.3）</td><td>該關的失敗文案（7.3）</td></tr>
+<tr><td>星等</td><td>三顆星依序亮起（每顆 0.25 秒，各一聲）</td><td>三顆空星</td></tr>
+<tr><td>數據</td><td colspan="2">剩餘時間（失敗顯示「還差 N 公尺」）、擦身而過次數、最驚險次數、摔車次數、最高時速；破紀錄（剩餘時間更多）加「★新紀錄」</td></tr>
+<tr><td>按鈕</td><td>「下一關」（第 20 關沒有）「再挑戰」「選關」</td><td>「再挑戰」「選關」</td></tr>
+</table></div>
+
+<h3 id="s2-7">2.7 其他畫面</h3>
+<ul>
+<li>觸控裝置直拿時蓋上「請把手機轉成橫向」。</li>
+<li>初始化出錯時顯示「載入失敗：」加錯誤訊息。</li>
+<li>對話框（設定、操作說明）右上「✕」、點外面或 Esc 關閉；開著時按鍵不漏給遊戲。</li>
+</ul>
+
+<h2 id="s3">3. 通關規則</h2>
+<h3 id="s3-1">3.1 時限與抵達</h3>
+<ul>
+<li>每關有路線長度 L 與時限 T（7.2）。GO 開始倒數，玩家前進距離 s ≥ L 即抵達、過關，剩餘時間＝T − 經過時間。</li>
+<li>剩餘時間歸零前沒抵達＝失敗。</li>
+<li>前進距離＝沿路線中心線的距離，不會倒退（沒有倒車）。</li>
+</ul>
+<h3 id="s3-2">3.2 星等</h3>
+<div class="table-wrap"><table>
+<tr><th>星等</th><th>條件</th></tr>
+<tr><td>★</td><td>過關</td></tr>
+<tr><td>★★</td><td>過關且剩餘時間 ≥ 該關的 ★★ 門檻（7.2）</td></tr>
+<tr><td>★★★</td><td>過關、剩餘時間 ≥ 該關的 ★★★ 門檻，<b>而且整關沒摔車</b></td></tr>
+</table></div>
+<h3 id="s3-3">3.3 擦身而過</h3>
+<ul>
+<li>玩家從一台<b>行駛中或停著的車</b>（機車、汽車、公車、貨車，含三寶事件車）旁邊超過（兩者的前後關係反轉）的那一刻，若左右間隙 &lt; 0.6 公尺、玩家車速 ≥ 15 m/s、這次超車過程沒碰到它：算一次「擦身而過」，衝刺計量 +0.25 條，彈出「擦身而過！」。</li>
+<li>間隙 &lt; 0.3 公尺：改算「驚險！」，衝刺計量 +0.4 條，彈出「驚險！」並短暫放慢 0.15 秒（0.6 倍速）。</li>
+<li>迎面而來的對向車擦過（兩車交會）一樣算，計量同上。</li>
+<li>同一台車只算一次。</li>
+</ul>
+<h3 id="s3-4">3.4 個人紀錄</h3>
+<p>每關存：最高星等、最多剩餘時間、最多擦身而過次數。只在過關時更新，存在這台裝置（10.3）。</p>
+
+<h2 id="s4">4. 操控與機車物理</h2>
+<p>物理固定每秒 120 步，與幀率無關。玩家位置以<b>路線座標</b>表示：<code>s</code>＝沿中心線前進的距離、<code>x</code>＝離中心線的橫向距離（右為正）。所有碰撞都在這個座標系裡算。數值是預設值，括號是 <code>js/tuning.js</code> 的參數名。</p>
+<h3 id="s4-1">4.1 輸入</h3>
+<div class="table-wrap"><table>
+<tr><th>動作</th><th>鍵盤</th><th>觸控</th><th>說明</th></tr>
+<tr><td>油門</td><td>無（自動）</td><td>無（自動）</td><td>一律自動催油；按住煞車時不給油</td></tr>
+<tr><td>左、右</td><td>A／←、D／→</td><td>◀ ▶（左下）</td><td>數位輸入，同時按＝0</td></tr>
+<tr><td>煞車</td><td>S／↓</td><td>「煞」（右下）</td><td></td></tr>
+<tr><td>衝刺</td><td>空白鍵、W／↑</td><td>「衝」（右下）</td><td>有衝刺時使用（4.4）</td></tr>
+<tr><td>喇叭</td><td>H、Shift</td><td>「叭」（右下）</td><td>4.5</td></tr>
+<tr><td>暫停</td><td>Esc、P</td><td>右上暫停鈕</td><td>2.5</td></tr>
+</table></div>
+<p>網頁失去焦點時所有按鍵與觸控放開。</p>
+
+<h3 id="s4-2">4.2 速度</h3>
+<ul>
+<li>極速上限：一般 27.8 m/s＝100 km/h（<code>maxSpeed</code>）；衝刺中再 +11.1 m/s（<code>boostSpeed</code>，＝140 km/h）。</li>
+<li>加速：+9 m/s²（<code>accel</code>）× max(0.25, 1 − r²)，r＝車速 ÷ 極速上限；衝刺中 +16 m/s²（<code>boostAccel</code>）。</li>
+<li>煞車：−16 m/s²（<code>brake</code>），最低 0，沒有倒車。</li>
+<li>超過極速上限（衝刺結束）：每秒減（超出量 × 1.2 ＋ 1）m/s。</li>
+<li>積水、坑洞等的減速見 5.5。</li>
+</ul>
+<h3 id="s4-3">4.3 轉向與傾車</h3>
+<ul>
+<li>橫向速度目標＝方向 × 橫移上限；橫移上限＝4.5 + 3.5 × min(1, 車速 ÷ 27.8)（<code>latBase</code>、<code>latGain</code>），滿速 8 m/s。車速 3 m/s 以下乘 車速 ÷ 3（停著不能平移）。</li>
+<li>橫向速度每秒以 10（<code>latResp</code>）的速率追目標。</li>
+<li>車頭方向＝路線方向偏 atan(橫向速度 ÷ 車速)；車身傾角＝橫向加速度造成的側傾，最大 35°，有阻尼回正（純表現）。</li>
+<li>路緣：撞上路面左右邊界（路緣石、牆、分隔島）時橫向速度歸零、彈回 0.1 公尺，車速 ×0.9，彈出「擦牆」（同一次接觸只算一次，離開 0.5 秒後才會再算）。不會摔車。</li>
+</ul>
+<h3 id="s4-4">4.4 衝刺</h3>
+<ul>
+<li>衝刺計量：擦身而過累積（3.3）；滿 1 條得到 1 次衝刺，最多存 2 次（<code>boostMax</code>），存滿時計量停在滿格。</li>
+<li>每關開始有 1 次衝刺。</li>
+<li>按衝刺：消耗 1 次，持續 2.5 秒（<code>boostTime</code>）；作用中再按不消耗。</li>
+<li>摔車時正在作用的衝刺立即結束，存的次數不變。</li>
+</ul>
+<h3 id="s4-5">4.5 喇叭</h3>
+<ul>
+<li>按一下「叭」一聲，冷卻 0.8 秒。</li>
+<li>前方 35 公尺內、左右 2.5 公尺內的<b>一般車流</b>（5.2）會讓路：往離玩家較遠的那側平移最多 1.2 公尺，花 1 秒，之後維持新位置。</li>
+<li>三寶事件車與行人、狗<b>不理喇叭</b>（三寶就是三寶）。</li>
+</ul>
+<h3 id="s4-6">4.6 碰撞</h3>
+<p>所有物體在路線座標用有方向的矩形（長 × 寬）判定。玩家矩形 1.8 × 0.7 公尺、不隨車頭轉（街機手感）。兩個矩形重疊時，取「穿透最淺的那個軸」判斷是從哪個方向碰到的：</p>
+<div class="table-wrap"><table>
+<tr><th>結果</th><th>條件</th><th>效果</th></tr>
+<tr><td>摔車</td><td>碰到行人、狗、掉落招牌、倒地機車、遶境隊伍（任何方向）；或碰到車、施工圍籬時是<b>從前方或後方撞進去</b>（最淺軸以前後方向為主）；或撞到打開的車門</td><td>見 4.7</td></tr>
+<tr><td>擦撞</td><td>從側面碰到車或施工圍籬</td><td>兩邊推開到不重疊，玩家橫向速度反向 ×0.5、車速 ×0.8，0.25 秒內不再判定，彈出「擦撞！」；不算摔車</td></tr>
+<tr><td>撞飛小物</td><td>三角錐、垃圾袋、紙箱</td><td>物體飛出去，車速 ×0.85，彈出「撞飛！」</td></tr>
+<tr><td>路面</td><td>坑洞、凸起的人孔蓋、人孔蓋、積水</td><td>見 5.5</td></tr>
+</table></div>
+<h3 id="s4-7">4.7 摔車與復位</h3>
+<ul>
+<li>機車倒地往前滑行並減速，騎士與 Komugi 一起滾（卡通式，沒有血腥），彈出「摔車！」，鏡頭震動。滑行 1.6 秒後畫面淡出淡入，0.6 秒後在<b>當下的 s</b> 復位。</li>
+<li>復位位置：在 s 附近 ±4 公尺內沒有障礙的橫向位置中離原本 x 最近的一個；車速 0、方向回正。</li>
+<li>復位後 2 秒無敵（車身閃爍、穿過任何東西）。</li>
+<li>計數「摔車」+1。整關摔車大約損失 5～6 秒（2.2 秒動畫＋重新加速）。</li>
+</ul>
+
+<h2 id="s5">5. 交通與障礙</h2>
+<h3 id="s5-1">5.1 車種</h3>
+<div class="table-wrap"><table>
+<tr><th>車種</th><th>長 × 寬（m）</th><th>速度（m/s）</th><th>外觀</th></tr>
+<tr><td>機車</td><td class="num">1.9 × 0.75</td><td>8～14</td><td>速克達，多種車色；騎士戴安全帽，部分載人、載貨（菜籃、外送箱）</td></tr>
+<tr><td>轎車</td><td class="num">4.5 × 1.8</td><td>9～15</td><td>銀、白、黑、深藍、紅</td></tr>
+<tr><td>計程車</td><td class="num">4.6 × 1.8</td><td>9～15</td><td>黃色、車頂燈</td></tr>
+<tr><td>發財車</td><td class="num">4.6 × 1.7</td><td>8～12</td><td>藍或白的小貨車，車斗載貨</td></tr>
+<tr><td>公車</td><td class="num">11 × 2.5</td><td>7～11</td><td>市區公車，車頭顯示路線號碼</td></tr>
+<tr><td>砂石車</td><td class="num">9 × 2.5</td><td>9～12</td><td>橘黃色車頭、大車斗</td></tr>
+<tr><td>垃圾車</td><td class="num">7 × 2.3</td><td>3～5</td><td>黃白配色，播〈給愛麗絲〉</td></tr>
+<tr><td>選舉宣傳車</td><td class="num">4.8 × 1.8</td><td>3.5～4.5</td><td>發財車改裝，車斗立「凍蒜！」看板（候選人是剪影，不是真實人物）、車頂四顆號角喇叭、彩旗、車頭布條</td></tr>
+<tr><td>腳踏車</td><td class="num">1.8 × 0.6</td><td>4～6</td><td>菜籃腳踏車</td></tr>
+<tr><td>行人</td><td class="num">0.5 × 0.5</td><td>1.0～1.6</td><td>多種衣著；低頭族拿手機</td></tr>
+<tr><td>狗</td><td class="num">0.8 × 0.3</td><td>3</td><td>土狗（黃、黑）</td></tr>
+</table></div>
+
+<h3 id="s5-2">5.2 一般車流</h3>
+<ul>
+<li>同向車流在各車道中心行駛，前方同車道有車時依跟車距離減速（最小車距 6 公尺＋速度 × 0.8 秒）；不會自己換車道（換車道是三寶事件）。</li>
+<li>對向車流（雙向道路）在對向車道行駛，玩家可以騎進對向車道超車，迎面撞上＝摔車。</li>
+<li>路邊停車：停車格裡的汽車、巷弄與騎樓邊停滿的機車，屬於靜止障礙。</li>
+<li>密度：每關設「同向密度」「對向密度」（每 100 公尺每車道幾台），在玩家前方 40～260 公尺的範圍內維持；落後玩家 60 公尺的車回收。車種比例依路段（6.2）。</li>
+<li>每關車流用固定亂數種子產生（2.3）。</li>
+</ul>
+
+<h3 id="s5-3">5.3 路口與紅綠燈</h3>
+<ul>
+<li>街道與幹道每 140～260 公尺一個十字路口（巷弄是小巷口，沒有號誌）。</li>
+<li>路口有：斑馬線、停止線、機車待轉區、號誌桿（三色燈＋紅燈倒數秒數）、行人號誌（小綠人）。</li>
+<li>號誌週期 綠 9 秒 → 黃 2 秒 → 紅 7 秒，各路口相位錯開（由種子決定）。</li>
+<li><b>玩家方向紅燈時</b>，橫向車流從兩側通過路口（每 1.2～2.5 秒一台，速度 10～14 m/s，車種依路段）；綠燈時橫向不來車。闖紅燈不罰，但要自己閃過橫向車流。</li>
+<li>同向的<b>汽車</b>遇紅燈會在停止線前停下排隊（玩家可從車縫鑽過去）；<b>機車、腳踏車照樣衝</b>（搶黃燈、闖紅燈，規格 5.8）。</li>
+</ul>
+
+<h3 id="s5-4">5.4 三寶事件</h3>
+<p>三寶事件放在路線的固定位置（由關卡種子＋每公里次數產生）。每種都有<b>預兆</b>：玩家在觸發前就能看出來。觸發距離是「玩家與事件的前後距離」。</p>
+<div class="table-wrap"><table>
+<tr><th>代號</th><th>名稱</th><th>預兆</th><th>行為</th><th>觸發距離</th></tr>
+<tr><td><code>cutin</code></td><td>突然切車道</td><td>那台車左右晃一下（偏 0.3 公尺、0.5 秒）、<b>不打方向燈</b></td><td>旁邊車道的車 1.2 秒內切進玩家所在車道</td><td>前方 32 m</td></tr>
+<tr><td><code>alley</code></td><td>巷口竄出</td><td>巷口地面先照出車燈光、聽到引擎聲（觸發前 1 秒）</td><td>機車從側邊巷子以 9 m/s 衝出，橫越或併入車道</td><td>前方 48 m</td></tr>
+<tr><td><code>door</code></td><td>開門殺</td><td>路邊停的車亮煞車燈、車內駕駛在動（觸發前 1 秒）</td><td>左前門打開，門板伸進車道 1.0 公尺，開 2.5 秒</td><td>前方 22 m</td></tr>
+<tr><td><code>taxi</code></td><td>計程車急停</td><td>路邊有人招手</td><td>前方計程車以 −9 m/s² 急煞停在車道上、打雙黃燈，停 3 秒再走</td><td>前方 30 m</td></tr>
+<tr><td><code>bus</code></td><td>公車切出</td><td>公車站停著的公車打左方向燈（公車會打燈）</td><td>公車從站位切回外側車道並起步</td><td>前方 45 m</td></tr>
+<tr><td><code>ped</code></td><td>行人亂穿越／低頭族</td><td>人站在兩台停著的車中間、往路中看；低頭族看手機</td><td>以 1.4 m/s（低頭族 1.0 m/s，走到路中會停 1 秒）橫越</td><td>前方 34 m</td></tr>
+<tr><td><code>wrongway</code></td><td>逆向機車</td><td>遠處就看得到迎面的車燈</td><td>在玩家的車道逆向朝玩家騎來，10 m/s，會小幅左右飄</td><td>前方 160 m 出現</td></tr>
+<tr><td><code>uturn</code></td><td>違規迴轉</td><td>前方汽車先減速、車頭往左偏</td><td>花 3 秒橫跨所有車道迴轉，期間擋住大部分路面</td><td>前方 55 m</td></tr>
+<tr><td><code>uncle</code></td><td>阿伯慢騎</td><td>老機車、騎士戴斗笠或鴨舌帽</td><td>6 m/s，左右飄 ±0.8 公尺（週期 3 秒），不理喇叭</td><td>一直存在</td></tr>
+<tr><td><code>double</code></td><td>併排停車</td><td>打雙黃燈</td><td>汽車併排停在外側車道，靜止</td><td>一直存在</td></tr>
+<tr><td><code>garbage</code></td><td>垃圾車</td><td>聽得到〈給愛麗絲〉</td><td>垃圾車 4 m/s，周圍 2～4 位提垃圾袋的住戶在路上走動、追車</td><td>一直存在</td></tr>
+<tr><td><code>dogs</code></td><td>流浪狗</td><td>聽到狗叫（觸發前 0.8 秒）</td><td>1～3 隻狗以 3 m/s 從路邊衝過馬路</td><td>前方 30 m</td></tr>
+<tr><td><code>procession</code></td><td>遶境隊伍</td><td>鑼鼓、鞭炮聲與煙</td><td>神轎、旗隊佔住路面 2/3（只留左或右一側），以 1.5 m/s 前進，隊伍長 40 公尺；鞭炮煙區視線變差</td><td>一直存在</td></tr>
+<tr><td><code>truck</code></td><td>砂石車</td><td>引擎低鳴</td><td>大車慢行；從它旁邊 1 公尺內經過時被風壓往外推（橫向 +1.5 m/s）</td><td>一直存在</td></tr>
+<tr><td><code>delivery</code></td><td>外送員分心</td><td>揹外送箱、低頭看手機的機車</td><td>9 m/s 同向；觸發時 1 秒內往玩家這側飄 1.5 公尺，同時急煞到 3 m/s，2.2 秒後恢復</td><td>前方 35 m</td></tr>
+<tr><td><code>pullout</code></td><td>路邊起步不看</td><td>路邊停的車冒排氣、亮煞車燈（觸發前約 0.6 秒）</td><td>從停車格以 1→7 m/s 起步、切進外側車道</td><td>前方 26 m</td></tr>
+<tr><td><code>drunk</code></td><td>酒駕</td><td>遠遠就看到大幅蛇行</td><td>汽車同向 7～13 m/s 時快時慢，左右蛇行 ±2.4 公尺（週期 2.4 秒，受路寬限制）</td><td>一直存在</td></tr>
+<tr><td><code>drugged</code></td><td>毒駕</td><td>大燈一直閃、車裡傳出重低音</td><td>每 1.5～3 秒隨機做一件事：急煞到 3 m/s（35%）、猛衝到 16 m/s（25%）、突然橫移 2.5 公尺（40%）</td><td>一直存在</td></tr>
+<tr><td><code>campaign</code></td><td>選舉宣傳車</td><td>喇叭聲「凍蒜！凍蒜！」、鞭炮</td><td>宣傳車 4 m/s 跨在兩車道中間，後面跟 2～4 台插旗的支持者機車（跟車 4 m/s），佔住大半條路；不理喇叭</td><td>一直存在</td></tr>
+<tr><td><code>walker</code></td><td>行人走車道</td><td>人行道上停滿機車、攤販、變電箱</td><td>1～3 位行人貼著右側路邊走在車道上（1.1 m/s，離路緣 1.3 公尺內）</td><td>一直存在</td></tr>
+<tr><td><code>rightturn</code></td><td>右轉車切機車道</td><td>旁邊車道的車在路口前減速；一半的車打右方向燈、一半不打</td><td>停止線前 9 公尺從內側車道往右切過機車道，進路口右轉離開</td><td>車到停止線前 26 m</td></tr>
+<tr><td><code>bigturn</code></td><td>大車內輪差</td><td>公車或砂石車打右方向燈、嗶嗶聲、先往左擺 0.9 公尺</td><td>停止線前 12 公尺往右切到路緣、慢速右轉，車身與車尾掃過整條機車道約 3 秒</td><td>車到停止線前 34 m</td></tr>
+</table></div>
+
+<h3 id="s5-5">5.5 路面障礙</h3>
+<div class="table-wrap"><table>
+<tr><th>障礙</th><th>外觀</th><th>效果</th></tr>
+<tr><td>坑洞</td><td>路面破洞</td><td>車速 ×0.9、車身震動、方向亂抖 0.4 秒</td></tr>
+<tr><td>凸起的人孔蓋</td><td>高出路面的圓鐵蓋＋周圍一圈補丁柏油</td><td>同坑洞：車速 ×0.9、方向亂抖 0.4 秒</td></tr>
+<tr><td>人孔蓋</td><td>圓形鐵蓋（雨天才滑）</td><td>雨天經過時方向亂抖 0.3 秒；晴天無影響</td></tr>
+<tr><td>補丁路面</td><td>路面上挖了又補的深色柏油塊</td><td>純表現（沒有效果）</td></tr>
+<tr><td>積水</td><td>反光水窪（雨天）</td><td>車速 ×0.92、濺水</td></tr>
+<tr><td>施工封路</td><td>紅白三角錐排成斜線＋施工圍籬＋閃黃燈</td><td>封住 1～2 個車道 30～60 公尺；三角錐撞飛、圍籬摔車</td></tr>
+<tr><td>掉落物</td><td>紙箱、垃圾袋、被吹倒的招牌（颱風）</td><td>紙箱與垃圾袋撞飛；招牌＝摔車</td></tr>
+</table></div>
+
+<h3 id="s5-6">5.6 天候</h3>
+<ul>
+<li><b>雨</b>：雨絲、路面濕亮反光、積水；騎士穿雨衣；能見度（霧）縮短 30%。</li>
+<li><b>颱風</b>：雨＋陣風：每 4～7 秒一次側風，持續 1.5 秒，把玩家橫向推 2 m/s（方向隨機，預兆是雨絲的角度先變、風聲變大 0.6 秒）；路上有掉落招牌與被吹倒的機車。</li>
+</ul>
+
+<h3 id="s5-7">5.7 難度怎麼由障礙控制</h3>
+<p>機車性能每關都一樣；難度只靠下列「障礙旋鈕」，每關的設定在 7.2：</p>
+<div class="table-wrap"><table>
+<tr><th>旋鈕</th><th>意思</th><th>範圍</th></tr>
+<tr><td>車流密度</td><td>每 100 公尺每車道的同向／對向車數</td><td>0.6～3.0</td></tr>
+<tr><td>三寶種類</td><td>這關會出現哪些事件（5.4）</td><td>累積解鎖：每關新增 0～2 種</td></tr>
+<tr><td>三寶頻率</td><td>每公里事件數</td><td>3～16</td></tr>
+<tr><td>路面障礙</td><td>每公里坑洞＋施工＋掉落物數</td><td>0～8</td></tr>
+<tr><td>路段</td><td>窄巷、夜市（人多路窄）比幹道難閃</td><td>6.2</td></tr>
+<tr><td>天候與時段</td><td>夜晚、雨、颱風（視線、側風、積水）</td><td>6.5、5.6</td></tr>
+<tr><td>時限</td><td>平均必須維持的速度</td><td>依模擬校準（11）</td></tr>
+</table></div>
+
+<h3 id="s5-8">5.8 台灣交通亂象對照</h3>
+<p>Ken 列的台灣交通亂象（2026-11-17）與遊戲裡對應的障礙。遊戲裡玩家騎機車，所以「站在機車騎士的角度會遇到的」都做成障礙；只跟行人有關的，用行人出現在車道上表現。</p>
+<div class="table-wrap"><table>
+<tr><th>類別</th><th>亂象</th><th>遊戲裡的障礙</th><th>首次出現</th></tr>
+<tr><td rowspan="7">用路人行為</td><td>行人地獄（轉彎車不讓行人）</td><td>右轉車切機車道（<code>rightturn</code>）；行人亂穿越（<code>ped</code>）</td><td>2-3、1-3</td></tr>
+<tr><td>機車鑽車縫、搶黃燈、闖紅燈，無視停等區與待轉格</td><td>紅燈時橫向車流裡的機車照衝；同向機車不停紅燈；巷口竄出（<code>alley</code>）</td><td>2-3、1-4</td></tr>
+<tr><td>右轉車不禮讓直行機車</td><td>右轉車切機車道（<code>rightturn</code>）</td><td>2-3</td></tr>
+<tr><td>不打方向燈、隨意變換車道</td><td>突然切車道（<code>cutin</code>）；違規迴轉（<code>uturn</code>）</td><td>2-1、3-3</td></tr>
+<tr><td>併排臨停（停一下就好）</td><td>併排停車（<code>double</code>）；計程車急停（<code>taxi</code>）</td><td>2-3、2-2</td></tr>
+<tr><td>大型車內輪差</td><td>大車內輪差（<code>bigturn</code>）；砂石車風壓（<code>truck</code>）</td><td>4-1</td></tr>
+<tr><td>酒駕（毒駕）</td><td>酒駕（<code>drunk</code>）、毒駕（<code>drugged</code>）</td><td>3-2、3-4</td></tr>
+<tr><td rowspan="4">道路設計</td><td>人行道不連續，行人被逼走車道</td><td>行人走車道（<code>walker</code>），旁邊人行道停滿機車、攤販、變電箱</td><td>1-3</td></tr>
+<tr><td>路口設計以車為本</td><td>大路口、長斑馬線；紅燈時兩側橫向車流（5.3）</td><td>2-3</td></tr>
+<tr><td>標線混亂、兩段式左轉搞不清楚</td><td>機車待轉區畫在路口；停等的車陣裡要自己找縫</td><td>1-2</td></tr>
+<tr><td>路面品質差（凸起人孔蓋、補丁路）</td><td>坑洞、凸起的人孔蓋、補丁路面（5.5）</td><td>1-2</td></tr>
+<tr><td rowspan="2">停車</td><td>違停（紅黃線、轉角擋視線）</td><td>路邊停車格與違停的車：開門殺（<code>door</code>）、路邊起步不看（<code>pullout</code>）；巷口的停車擋住視線讓竄出更難看到</td><td>2-4</td></tr>
+<tr><td>機車停滿人行道</td><td>騎樓與人行道停滿機車（街景）；行人因此走車道（<code>walker</code>）</td><td>1-1</td></tr>
+<tr><td rowspan="4">其他</td><td>外送員邊騎邊看手機</td><td>外送員分心（<code>delivery</code>）</td><td>2-1</td></tr>
+<tr><td>選舉宣傳車</td><td>選舉宣傳車＋支持者車隊（<code>campaign</code>）</td><td>4-1</td></tr>
+<tr><td>逆向、三寶</td><td>逆向機車（<code>wrongway</code>）、阿伯慢騎（<code>uncle</code>）、垃圾車、遶境</td><td>3-2、1-1、1-3、4-4</td></tr>
+<tr><td>路邊攤佔道</td><td>夜市攤車擠到路邊、人潮走在路上（<code>market</code> 路段）</td><td>3-1</td></tr>
+</table></div>
+
+<h2 id="s6">6. 道路與街景</h2>
+<h3 id="s6-1">6.1 路線幾何</h3>
+<ul>
+<li>路線是一條連續的中心線：直線段（80～300 公尺）與緩彎（半徑 220～600 公尺、轉角 ≤ 25°）交替，可以有緩坡（坡度 ≤ 4%）。依關卡種子產生。</li>
+<li>一條路線由幾個<b>路段</b>串起來（例：巷弄 400 公尺 → 街道 800 公尺 → 幹道 1000 公尺），路段交界有 30 公尺的過渡（路寬漸變、路口銜接）。</li>
+<li>街景與車流只產生在玩家前方 320 公尺、後方 60 公尺內，分成每段 40 公尺的區塊，邊騎邊產生、邊回收。</li>
+</ul>
+<h3 id="s6-2">6.2 路段種類</h3>
+<div class="table-wrap"><table>
+<tr><th>代號</th><th>名稱</th><th>斷面（從左到右）</th><th>車流組成</th><th>街景</th></tr>
+<tr><td><code>alley</code></td><td>巷弄</td><td>牆／停放機車 0.8｜雙向混用 6.0 公尺（無標線）｜停放機車 0.8／牆</td><td>機車 70%、轎車 20%、腳踏車 10%；對向有車</td><td>2～4 層透天厝、鐵捲門、盆栽、鐵窗、冷氣、電線桿與亂拉的電線、巷口反光鏡</td></tr>
+<tr><td><code>street</code></td><td>社區街道</td><td>騎樓 3｜人行道 0.4｜停車格 2｜對向車道 3.6｜雙黃線｜同向車道 3.6｜停車格 2｜人行道 0.4｜騎樓 3（停車格裡停的車與車道上的車之間留約 1.3 公尺的車縫）</td><td>機車 55%、轎車 25%、計程車 10%、發財車 10%</td><td>3～5 層磁磚透天厝、騎樓與店面、直式與橫式招牌、紅綠燈路口、廟宇</td></tr>
+<tr><td><code>avenue</code></td><td>市區幹道</td><td>分隔島 3（行道樹）｜內車道 3.3｜外車道 3.3｜機車優先道 2.4｜人行道 4｜騎樓</td><td>機車 45%、轎車 30%、計程車 12%、公車 8%、發財車 5%；對向車流在分隔島另一側（只看得到、碰不到）</td><td>7～14 層大樓、騎樓店家、公車站、捷運高架（部分路段在分隔島上）、機車待轉區</td></tr>
+<tr><td><code>market</code></td><td>夜市老街</td><td>攤位｜單向 7.5 公尺（無標線）｜攤位</td><td>機車 80%、腳踏車 20%；大量行人</td><td>攤車與燈泡串、蒸氣、紅燈籠、老街牌樓、霓虹招牌</td></tr>
+<tr><td><code>highway</code></td><td>省道</td><td>分隔島 2｜內車道 3.5｜外車道 3.5｜路肩 2.5｜田或空地</td><td>轎車 40%、機車 25%、砂石車 15%、發財車 20%</td><td>稻田、鐵皮工廠、檳榔攤（霓虹）、廟、電塔、遠山、風車（濱海）</td></tr>
+</table></div>
+
+<h3 id="s6-3">6.3 台灣街景元素</h3>
+<p>「像台灣」是這款遊戲的賣點，下列元素都要有，越細越好：</p>
+<ul>
+<li><b>建築</b>：二丁掛／馬賽克磁磚外牆（米白、淺綠、粉紅、灰）、鐵窗（白色或鏽色格柵，凸出外牆）、頂樓鐵皮加蓋（藍色、灰色浪板）、頂樓水塔（不鏽鋼圓桶、藍色塑膠桶）、窗型與分離式冷氣室外機、陽台曬衣、騎樓柱與騎樓下的店面、拉下一半的鐵捲門。</li>
+<li><b>招牌</b>：直式長招牌（一棟樓疊好幾塊，紅黃白藍底、大字）、橫式店招、壓克力燈箱、跑馬燈（夜晚會亮）。店名從清單隨機組合（早餐店、自助餐、滷肉飯、牛肉麵、手搖飲、藥局、診所、機車行、五金行、通訊行、補習班、彩券行、檳榔…），<b>不用真實品牌</b>（便利商店用虛構的「小麥超商」）。</li>
+<li><b>路面</b>：柏油路面紋理與補丁、白色車道虛線、雙黃線、紅線與黃線路緣、「慢」「停」字、斑馬線、停止線、機車待轉區（白框＋機車圖案）、機車優先道標字、人孔蓋、路面補綴。</li>
+<li><b>路邊</b>：電線桿與一大束電線、號誌桿、路燈、反光鏡、公車站牌與候車亭、郵筒（紅綠一對）、行道樹（榕樹、台灣欒樹、椰子樹）、騎樓停滿的機車、盆栽、三角錐、垃圾袋。</li>
+<li><b>地標</b>：廟宇（紅牆、燕尾屋脊、龍柱、香爐）、夜市牌樓、捷運高架、遠方的高樓與山。</li>
+</ul>
+
+<h3 id="s6-4">6.4 起點與目的地</h3>
+<ul>
+<li>起點：玩家停在路邊起步，旁邊是該關的起點建築（例：早餐店、家門口）。</li>
+<li>終點：路線盡頭的目的地建築（醫院、學校、高鐵站、演唱會場館、捷運站、廟、獸醫院、公司大樓、夜市入口、老家三合院等，依 7.2），掛大型招牌；終點線是路面上的一條紅白格線與一道拱門（「目的地」字樣）。</li>
+</ul>
+
+<h3 id="s6-5">6.5 時段與光線</h3>
+<div class="table-wrap"><table>
+<tr><th>時段</th><th>天空</th><th>光線</th><th>特色</th></tr>
+<tr><td>早上（morning）</td><td>晴，少雲</td><td>太陽低、偏暖，長影子</td><td>早餐店蒸氣</td></tr>
+<tr><td>中午（noon）</td><td>晴，藍天白雲</td><td>太陽高、亮</td><td></td></tr>
+<tr><td>黃昏（dusk）</td><td>金橘色雲</td><td>低角度暖光，路燈開始亮</td><td>招牌半亮</td></tr>
+<tr><td>夜晚（night）</td><td>城市夜空</td><td>環境光弱，路燈、招牌、車燈是主要光源</td><td>招牌全亮、泛光（bloom）、車燈光束、濕亮路面反射霓虹</td></tr>
+<tr><td>雨天（rain）</td><td>陰天</td><td>散射光，沒有清楚影子</td><td>雨絲、濕路面、積水</td></tr>
+</table></div>
+
+<h2 id="s7">7. 關卡</h2>
+<h3 id="s7-1">7.1 章節</h3>
+<div class="table-wrap"><table>
+<tr><th>章</th><th>名稱</th><th>主要路段</th><th>主題</th></tr>
+<tr><td>1</td><td>巷弄日常</td><td>巷弄、社區街道</td><td>早上的住宅區：送早餐、上班、追垃圾車</td></tr>
+<tr><td>2</td><td>大馬路求生</td><td>社區街道、市區幹道</td><td>白天的市區：外送、趕車、面試</td></tr>
+<tr><td>3</td><td>夜市霓虹</td><td>夜市老街、社區街道、幹道</td><td>夜晚：擺攤、演唱會、末班捷運</td></tr>
+<tr><td>4</td><td>西濱與鄉間</td><td>省道、社區街道</td><td>黃昏與雨天：回老家、颱風、遶境</td></tr>
+<tr><td>5</td><td>人生大事</td><td>全部路段混合</td><td>終極考驗：跨年、求婚、老婆快生了</td></tr>
+</table></div>
+
+<h3 id="s7-2">7.2 關卡總表</h3>
+<p>車流密度寫「同向／對向」（每 100 公尺每車道）。新障礙＝這關第一次出現（開場卡會介紹）；「三寶」欄列這關會出現的全部事件。本表由 <code>node tools/spec_levels.mjs</code> 依 <code>js/levels.js</code> 產生，改關卡資料後重跑。</p>
+<p><b>時限的算法</b>（校準結果，<code>node tools/calibrate.mjs</code>＋<code>tools/apply_calibration.mjs</code>）：「普通」自動駕駛（反應 0.35 秒）不限時騎完的時間取 5 次中位數，乘上各章的餘裕——第 1 章 ×1.42、第 2 章 ×1.32、第 3 章 ×1.27、第 4 章 ×1.23、第 5 章 ×1.17；★★＝時限的 12%、★★★＝時限的 22%（四捨五入到整數秒）。自動駕駛會摔車，所以這是偏寬鬆的時限，實玩後再依 Ken 的手感調。</p>
+<!--LEVELS-->
+<div class="table-wrap"><table>
+<tr><th>關</th><th>標題</th><th>目的地</th><th>路段（公尺）</th><th>時段</th><th class="num">長度</th><th class="num">時限</th><th class="num">★★／★★★</th><th>密度</th><th class="num">三寶/km</th><th class="num">路障/km</th><th>三寶</th><th>新障礙</th></tr>
+<tr><td>1-1</td><td>蛋餅要涼了</td><td>巷尾的阿嬤家</td><td>alley 1400</td><td>早上</td><td class="num">1400</td><td class="num">71</td><td class="num">9／16</td><td>0.6／0.3</td><td class="num">3</td><td class="num">0</td><td>阿伯</td><td>路邊機車、阿伯慢騎</td></tr>
+<tr><td>1-2</td><td>打卡倒數 08:59</td><td>公司大樓</td><td>alley 500＋street 1100</td><td>早上</td><td class="num">1600</td><td class="num">80</td><td class="num">10／18</td><td>0.8／0.5</td><td class="num">4</td><td class="num">1</td><td>阿伯</td><td>對向來車、紅綠燈路口、坑洞、補丁路</td></tr>
+<tr><td>1-3</td><td>垃圾車來了！</td><td>追上垃圾車</td><td>alley 600＋street 1100</td><td>黃昏</td><td class="num">1700</td><td class="num">83</td><td class="num">10／18</td><td>0.9／0.6</td><td class="num">5</td><td class="num">1</td><td>阿伯、垃圾車、行人、行人走車道</td><td>垃圾車、行人亂穿越、行人走車道</td></tr>
+<tr><td>1-4</td><td>便當忘了帶</td><td>國中校門</td><td>alley 700＋street 1100</td><td>中午</td><td class="num">1800</td><td class="num">89</td><td class="num">11／20</td><td>1／0.7</td><td class="num">6</td><td class="num">2</td><td>阿伯、行人、巷口竄出</td><td>巷口竄出</td></tr>
+<tr><td>2-1</td><td>珍奶冰塊要化了</td><td>辦公大樓櫃台</td><td>street 600＋avenue 1400</td><td>中午</td><td class="num">2000</td><td class="num">96</td><td class="num">12／21</td><td>1.2／0.8</td><td class="num">6</td><td class="num">2</td><td>行人、巷口竄出、切車道、外送員</td><td>突然切車道、外送員分心</td></tr>
+<tr><td>2-2</td><td>趕搭高鐵</td><td>高鐵站</td><td>street 500＋avenue 1700</td><td>早上</td><td class="num">2200</td><td class="num">93</td><td class="num">11／20</td><td>1.3／0.8</td><td class="num">7</td><td class="num">2</td><td>切車道、巷口竄出、公車切出、小黃急停、外送員、行人走車道</td><td>公車切出、計程車急停</td></tr>
+<tr><td>2-3</td><td>面試別遲到</td><td>科技公司</td><td>avenue 2200</td><td>中午</td><td class="num">2200</td><td class="num">115</td><td class="num">14／25</td><td>1.5／0.9</td><td class="num">8</td><td class="num">2</td><td>切車道、公車切出、小黃急停、併排停車、外送員、右轉切車</td><td>併排停車、橫向車流、右轉車切機車道</td></tr>
+<tr><td>2-4</td><td>午休只剩 20 分</td><td>銀行</td><td>street 800＋avenue 1500</td><td>中午</td><td class="num">2300</td><td class="num">111</td><td class="num">13／24</td><td>1.6／0.9</td><td class="num">9</td><td class="num">3</td><td>切車道、小黃急停、併排停車、開門殺、行人、路邊起步</td><td>開門殺、路邊起步不看</td></tr>
+<tr><td>3-1</td><td>夜市擺攤要開了</td><td>夜市入口牌樓</td><td>street 900＋market 1100</td><td>夜晚</td><td class="num">2000</td><td class="num">111</td><td class="num">13／24</td><td>1.2／0.8</td><td class="num">9</td><td class="num">2</td><td>行人、巷口竄出、開門殺、阿伯、外送員</td><td>夜市人潮、低頭族</td></tr>
+<tr><td>3-2</td><td>演唱會開場前</td><td>演唱會場館</td><td>avenue 1500＋street 900</td><td>夜晚</td><td class="num">2400</td><td class="num">119</td><td class="num">14／26</td><td>1.7／1</td><td class="num">10</td><td class="num">3</td><td>切車道、小黃急停、行人、逆向、開門殺、酒駕</td><td>逆向機車、酒駕</td></tr>
+<tr><td>3-3</td><td>雞排攤要收了</td><td>雞排攤</td><td>street 900＋market 800＋street 600</td><td>夜晚</td><td class="num">2300</td><td class="num">134</td><td class="num">16／29</td><td>1.6／1</td><td class="num">11</td><td class="num">3</td><td>逆向、迴轉、行人、巷口竄出、開門殺、路邊起步、酒駕</td><td>違規迴轉</td></tr>
+<tr><td>3-4</td><td>末班捷運</td><td>捷運站入口</td><td>street 700＋avenue 1900</td><td>夜晚</td><td class="num">2600</td><td class="num">130</td><td class="num">16／29</td><td>1.8／1</td><td class="num">11</td><td class="num">5</td><td>切車道、迴轉、小黃急停、公車切出、逆向、併排停車、毒駕、右轉切車</td><td>施工封路、毒駕</td></tr>
+<tr><td>4-1</td><td>拜拜供品忘了帶</td><td>海邊的廟</td><td>street 600＋highway 2200</td><td>黃昏</td><td class="num">2800</td><td class="num">135</td><td class="num">16／30</td><td>1.4／0.8</td><td class="num">8</td><td class="num">4</td><td>砂石車、切車道、阿伯、迴轉、宣傳車、內輪差</td><td>砂石車、選舉宣傳車、大車內輪差</td></tr>
+<tr><td>4-2</td><td>回老家吃團圓飯</td><td>老家三合院</td><td>highway 2000＋alley 900</td><td>黃昏</td><td class="num">2900</td><td class="num">141</td><td class="num">17／31</td><td>1.5／0.8</td><td class="num">10</td><td class="num">4</td><td>砂石車、狗、阿伯、巷口竄出、逆向、酒駕</td><td>流浪狗</td></tr>
+<tr><td>4-3</td><td>颱風天下班</td><td>家門口</td><td>avenue 1200＋street 900＋alley 700</td><td>雨（颱風）</td><td class="num">2800</td><td class="num">129</td><td class="num">15／28</td><td>1.3／0.8</td><td class="num">10</td><td class="num">6</td><td>切車道、小黃急停、併排停車、開門殺、巷口竄出、狗、外送員、毒駕</td><td>颱風</td></tr>
+<tr><td>4-4</td><td>媽祖遶境</td><td>廟口</td><td>street 1200＋highway 1000＋street 800</td><td>黃昏</td><td class="num">3000</td><td class="num">159</td><td class="num">19／35</td><td>1.6／0.9</td><td class="num">12</td><td class="num">4</td><td>遶境、行人、巷口竄出、迴轉、狗、砂石車、宣傳車、酒駕</td><td>遶境隊伍</td></tr>
+<tr><td>5-1</td><td>跨年煙火倒數</td><td>市府廣場</td><td>street 800＋avenue 1600＋market 600</td><td>夜晚</td><td class="num">3000</td><td class="num">144</td><td class="num">17／32</td><td>2.2／1.2</td><td class="num">13</td><td class="num">5</td><td>全部</td><td>—</td></tr>
+<tr><td>5-2</td><td>求婚戒指忘在家</td><td>海景餐廳</td><td>alley 600＋street 900＋highway 1700</td><td>黃昏</td><td class="num">3200</td><td class="num">151</td><td class="num">18／33</td><td>2.2／1.2</td><td class="num">14</td><td class="num">6</td><td>全部</td><td>—</td></tr>
+<tr><td>5-3</td><td>狗狗看急診</td><td>動物醫院</td><td>street 900＋avenue 1500＋street 900</td><td>雨</td><td class="num">3300</td><td class="num">173</td><td class="num">21／38</td><td>2.4／1.3</td><td class="num">15</td><td class="num">7</td><td>全部</td><td>—</td></tr>
+<tr><td>5-4</td><td>老婆快生了！</td><td>醫院急診</td><td>alley 500＋street 900＋avenue 1400＋street 800</td><td>夜晚</td><td class="num">3600</td><td class="num">197</td><td class="num">24／43</td><td>2.8／1.5</td><td class="num">16</td><td class="num">8</td><td>全部</td><td>—</td></tr>
+</table></div>
+<!--/LEVELS-->
+
+
+<h3 id="s7-3">7.3 關卡文案</h3>
+<div class="table-wrap"><table>
+<tr><th>關</th><th>開場</th><th>過關</th><th>失敗</th></tr>
+<tr><td>1-1</td><td>早餐店老闆娘：「阿嬤的蛋餅跟溫奶茶，涼了她會念喔！」</td><td>阿嬤：「還燒的捏，乖孫！」</td><td>蛋餅涼了，阿嬤念了半小時。</td></tr>
+<tr><td>1-2</td><td>08:57，打卡機在等你。遲到一次扣全勤。</td><td>08:59:59，嗶——打卡成功。</td><td>09:00:01。全勤獎金，再見。</td></tr>
+<tr><td>1-3</td><td>〈給愛麗絲〉越來越遠了，手上還提著三包垃圾。</td><td>趕上了！垃圾準確投進車斗。</td><td>垃圾車轉彎走了，垃圾要在家多放一天。</td></tr>
+<tr><td>1-4</td><td>兒子傳訊息：「媽說你要送便當來，第四節下課前。」</td><td>兒子：「謝啦，爸。」（難得）</td><td>兒子只好吃福利社麵包。</td></tr>
+<tr><td>2-1</td><td>外送單：珍奶半糖少冰。冰塊正在融化中。</td><td>客人：「冰塊還在耶！五星好評。」</td><td>客人：「這是奶茶湯吧？」一星。</td></tr>
+<tr><td>2-2</td><td>高鐵 10:31 發車，你 10:28 還在路上。</td><td>車門關上前一秒，你衝進車廂。</td><td>列車開走了，改搭下一班自由座站著回去。</td></tr>
+<tr><td>2-3</td><td>夢想公司的終面，十點整，人資說不等人。</td><td>「你看起來很有衝勁。」錄取！</td><td>人資：「我們會再通知你。」</td></tr>
+<tr><td>2-4</td><td>午休剩 20 分鐘，銀行三點半關門，要匯款。</td><td>15:29，拿到號碼牌。</td><td>鐵門在你面前拉下來。</td></tr>
+<tr><td>3-1</td><td>夜市六點開市，攤位的瓦斯桶還在你後座。</td><td>瓦斯接上，第一鍋開炸！</td><td>隔壁攤把客人都搶走了。</td></tr>
+<tr><td>3-2</td><td>演唱會七點半開場，第一首是你最愛的歌。</td><td>前奏剛好響起，全場尖叫。</td><td>你在場外聽完了第一首。</td></tr>
+<tr><td>3-3</td><td>雞排攤老闆說今天只剩最後一塊，十點收攤。</td><td>最後一塊雞排，切不切、要不要辣？</td><td>老闆：「明天請早。」</td></tr>
+<tr><td>3-4</td><td>末班捷運 23:58，錯過就要搭小黃回家。</td><td>你滑進車廂，車門關上。</td><td>月台空了，計程車跳表中。</td></tr>
+<tr><td>4-1</td><td>媽說拜拜的供品放在你車上，廟口在等。</td><td>供品到齊，阿姨們鬆了一口氣。</td><td>拜拜只好用旁邊攤販的鳳梨。</td></tr>
+<tr><td>4-2</td><td>除夕，全家都到了，只差你。</td><td>「人到齊了，開飯！」</td><td>年夜飯的雞腿被表弟吃掉了。</td></tr>
+<tr><td>4-3</td><td>颱風警報發布，公司宣布提早下班，風雨越來越大。</td><td>你濕透地進門，泡麵已經煮好了。</td><td>你在騎樓躲雨躲到天亮。</td></tr>
+<tr><td>4-4</td><td>你是遶境隊伍的鑼手，鑼還在你家。</td><td>鑼聲響起，隊伍出發！</td><td>隊伍只好用手機放鑼聲。</td></tr>
+<tr><td>5-1</td><td>跨年倒數只剩幾分鐘，朋友都在廣場等你。</td><td>「5、4、3、2、1——新年快樂！」</td><td>你在路上看到煙火，從後照鏡。</td></tr>
+<tr><td>5-2</td><td>求婚就在今晚，戒指卻還在家裡的抽屜。</td><td>單膝跪下：「嫁給我好嗎？」她說好。</td><td>她等到餐廳打烊。（戒指還在口袋裡）</td></tr>
+<tr><td>5-3</td><td>狗狗吃了巧克力，獸醫院的急診在等。</td><td>醫生：「送來得及時，沒事了。」</td><td>醫生說下次要更快一點。（狗狗還是沒事）</td></tr>
+<tr><td>5-4</td><td>半夜兩點，老婆：「要生了！」羊水破了，醫院在等你們。</td><td>護理師：「恭喜，是個健康的寶寶！」</td><td>寶寶在計程車上出生了。（母子均安）</td></tr>
+</table></div>
+<p class="note">5-4 的劇情是老婆坐後座：玩家車上多一位乘客（取代 Komugi），其他關都是 Komugi 站在腳踏板。</p>
+
+<h2 id="s8">8. 介面</h2>
+<h3>8.1 HUD</h3>
+<div class="table-wrap"><table>
+<tr><th>元素</th><th>位置</th><th>內容</th></tr>
+<tr><td>剩餘時間</td><td>上方中央</td><td>大字「63.4」，剩 10 秒變紅並放大跳動</td></tr>
+<tr><td>路程條</td><td>時間下方</td><td>橫條：起點 → 目的地圖示，玩家機車圖示依 s ÷ L 移動；右側「還有 1.2 km」</td></tr>
+<tr><td>關卡標題</td><td>左上</td><td>「1-3 垃圾車來了！」</td></tr>
+<tr><td>擦身而過、摔車</td><td>左上標題下</td><td>「擦身 ×12　摔車 ×1」</td></tr>
+<tr><td>時速表</td><td>右下</td><td>大字 km/h，衝刺中變藍並出現火焰圖示</td></tr>
+<tr><td>衝刺</td><td>時速表上方</td><td>計量條＋最多兩個圓點（有幾次亮幾個）</td></tr>
+<tr><td>暫停鈕</td><td>右上</td><td>Ⅱ</td></tr>
+<tr><td>彈出字</td><td>中央偏上</td><td>擦身而過、驚險、擦撞、摔車、撞飛等，0.9 秒淡出</td></tr>
+<tr><td>觸控鈕</td><td>左下 ◀ ▶；右下 煞、衝、叭</td><td>只在觸控裝置顯示；◀ ▶ 可以滑動換邊</td></tr>
+</table></div>
+<h3>8.2 設定</h3>
+<ul>
+<li>畫質：高畫質（陰影、泛光、動態模糊、解析度上限 2 倍）／省電（無泛光與模糊、陰影簡化、解析度上限 1 倍，觸控裝置 1.25 倍）。高畫質下連續 3 秒低於 40 fps 自動切省電並提示。</li>
+<li>音量：主音量滑桿 0～100%。</li>
+<li>清除紀錄（要再按一次確認）。</li>
+</ul>
+<h3>8.3 操作說明</h3>
+<p>列出 4.1 的按鍵／觸控、擦身而過與衝刺的規則、星等規則。</p>
+
+<h2 id="s9">9. 美術與音效</h2>
+<h3>9.1 美術方向</h3>
+<ul>
+<li>風格：寫實取向的風格化 3D——形體簡潔，但材質、光線與細節要讓人一眼認出「這是台灣的街」。<b>美術品質越高越好</b>：PBR 材質、照片天空（Poly Haven CC0）＋環境反射、即時陰影、ACES 色調、泛光、霧與景深感。</li>
+<li>建築、招牌、路面標線、車輛、人物都用程式產生（three.js 幾何＋程式畫的貼圖），招牌文字用 Noto Sans TC 畫上去；沒有網路字型時用系統的中文字型。</li>
+<li>車輛有車燈（夜晚亮、煞車亮紅、方向燈與雙黃燈會閃）、車窗反射、輪子轉動；機車騎士戴安全帽、會隨車傾斜。</li>
+</ul>
+<h3>9.2 畫面表現</h3>
+<ul>
+<li>鏡頭：機車後方 4.2 公尺、高 1.9 公尺的追車鏡頭，看前方 10 公尺；視角 62°，隨車速放寬到 76°，衝刺再 +6°；擦身而過時輕微震動，摔車大震動。</li>
+<li>速度感：車速 &gt; 70% 極速出現兩側風線；衝刺時放射狀速度線＋（高畫質）放射狀動態模糊。</li>
+<li>機車：傾車、前輪轉向、排氣管煙、煞車燈；衝刺時排氣管噴藍火。</li>
+<li>雨：雨絲粒子、鏡頭前的雨滴、濕路面反射。</li>
+<li>夜晚：招牌與燈箱發光、車燈光錐、路燈光暈。</li>
+</ul>
+<h3>9.3 音效</h3>
+<p>全部即時合成（Web Audio），不用音檔。</p>
+<div class="table-wrap"><table>
+<tr><th>聲音</th><th>規格</th></tr>
+<tr><td>引擎</td><td>速克達的嗡嗡聲（鋸齒＋方波經低通），音高隨車速；衝刺時再高、加噴射噪音</td></tr>
+<tr><td>風切</td><td>隨車速變大</td></tr>
+<tr><td>擦身而過</td><td>「咻」的都卜勒掃頻；驚險時更響</td></tr>
+<tr><td>喇叭</td><td>速克達的「叭」雙音（約 420＋500 Hz 方波）</td></tr>
+<tr><td>碰撞</td><td>擦撞金屬聲、摔車的撞擊＋刮地聲、撞飛三角錐的「咚」</td></tr>
+<tr><td>環境</td><td>城市底噪、其他車的喇叭（隨機）、夜市人聲（噪音帶）、雨聲、風聲</td></tr>
+<tr><td>特殊</td><td>垃圾車〈給愛麗絲〉（公版旋律，方波音色，距離越近越大聲）、遶境鑼鼓與鞭炮、狗叫</td></tr>
+<tr><td>嗶聲</td><td>倒數 523 Hz、GO 1046 Hz、剩 10 秒每秒 880 Hz、星等亮起 1318 Hz</td></tr>
+</table></div>
+
+<h2 id="s10">10. 非功能需求</h2>
+<h3>10.1 效能</h3>
+<ul>
+<li>物理固定 120 步／秒；單幀超過 0.1 秒以 0.1 秒計。</li>
+<li>桌機高畫質 60 fps；手機高畫質最低 40 fps，低於自動降省電（8.2）。</li>
+<li>街景區塊合併幾何（同材質合成一個網格）；招牌、外牆、店面貼圖畫在共用的貼圖集上。</li>
+<li>街景小物件來自 <code>assets/props.glb</code>（<code>tools/blender/build_props.py</code> 產生），顏色烘進頂點色後合併進區塊。冷氣、水塔、盆栽、停放機車等細節離玩家 150 公尺以外不畫。</li>
+<li>車輛、行人載入時把不會動的零件依材質類型合併（輪子、車門、車燈保持獨立）；離玩家 70 公尺以外的車不投影。</li>
+</ul>
+<h3>10.2 支援環境</h3>
+<ul>
+<li>支援 WebGL2 與 ES 模組（import map）的現代瀏覽器；手機橫向。</li>
+<li>靜態網站，沒有建置步驟；three.js 放在 <code>lib/</code>（與 KCar 同版本）。</li>
+</ul>
+<h3>10.3 存檔（這台裝置的瀏覽器儲存空間）</h3>
+<div class="table-wrap"><table>
+<tr><th>鍵名</th><th>內容</th><th>預設</th></tr>
+<tr><td><code>kmoto.progress.v1</code></td><td>{ 關卡編號: { stars, bestRemain, bestNear } }</td><td>空</td></tr>
+<tr><td><code>kmoto.chapter</code></td><td>上次選的章節</td><td>1</td></tr>
+<tr><td><code>kmoto.quality</code></td><td><code>high</code>／<code>low</code></td><td>觸控裝置 <code>low</code>，其他 <code>high</code></td></tr>
+<tr><td><code>kmoto.volume</code></td><td>0～1</td><td>0.7</td></tr>
+</table></div>
+<p>無法使用儲存空間時遊戲照常運作、不存檔。</p>
+<h3>10.4 版本號</h3>
+<p>遊戲版本號在 <code>js/version.js</code>，首頁右下角顯示。改了遊戲就跳一號；改 <code>style.css</code> 時 <code>index.html</code> 的 <code>?v=</code> 也要改。</p>
+
+<h2 id="s11">11. 驗收標準</h2>
+<p>每條都要能實際操作確認，或用無頭模擬量測。<code>node tools/sim.mjs</code> 用與遊戲相同的模擬模組（不含畫面），由自動駕駛跑關卡，回報過關率、平均剩餘時間、摔車數、擦身而過數。</p>
+<h3>11.1 流程與介面</h3>
+<ul class="check">
+<li>首頁五個章節分頁、每章 4 張關卡卡片，共 20 關，全部可以直接玩。</li>
+<li>開場卡顯示文案、時限、星等門檻、新障礙介紹；倒數 3、2、1、GO 各有嗶聲，倒數中車不動。</li>
+<li>抵達終點進結算頁並依 3.2 給星；時間歸零顯示「來不及了…」並進失敗結算。</li>
+<li>暫停（Esc、P、暫停鈕、切分頁）會停止計時；暫停選單五個按鈕行為符合 2.5。</li>
+<li>過關後首頁卡片顯示星等與最佳剩餘時間，重新整理仍在；私密模式可以正常遊玩。</li>
+<li>手機直拿顯示轉橫向提示；橫向可以用觸控按鈕完整玩一關。</li>
+</ul>
+<h3>11.2 操控</h3>
+<ul class="check">
+<li>不按任何鍵會自己加速到儀表約 100 km/h；按衝刺升到約 140 km/h，2.5 秒後回落。</li>
+<li>左右鍵可以在一秒內橫移一個車道（3.2 公尺）；停住時不能橫移。</li>
+<li>從車旁 0.6 公尺內高速超過彈出「擦身而過！」，計量增加；滿一條多一次衝刺，最多兩次。</li>
+<li>正面追撞前車＝摔車，約 2.2 秒後在原地附近復位、車速 0、閃爍 2 秒期間穿透障礙。</li>
+<li>側面輕碰前車＝擦撞（不摔車）；撞三角錐會撞飛並減速。</li>
+<li>按喇叭，前方同車道的一般車會往旁邊讓；三寶事件車不讓。</li>
+</ul>
+<h3>11.3 交通與障礙</h3>
+<ul class="check">
+<li>同一關每次挑戰的車流與事件位置相同。</li>
+<li>5.4 每一種三寶都能在它首次出現的關卡（7.2）看到，且觸發前看得到預兆；<code>node tools/check_events.mjs</code> 列出放不進路線的事件（只允許第 5 章因為沒有該路段而略過）。</li>
+<li>紅燈時路口有橫向車流、同向車停在停止線前；綠燈時沒有橫向車流。</li>
+<li>雙向路段有對向車；幹道的對向車在分隔島另一側且碰不到。</li>
+<li>4-3 有側風、積水與掉落招牌；4-4 有遶境隊伍只留一側可過。</li>
+<li>關卡越後面車流越密、三寶越多（7.2）；<code>node tools/sim.mjs</code> 的自動駕駛平均剩餘時間比例由第 1 章往第 5 章遞減。</li>
+<li>每一關「普通」自動駕駛（反應 0.35 秒）用校準後的時限過關率 ≥ 80%（<code>node tools/sim.mjs normal 5</code>）；不會卡住不動（<code>node tools/stuck.mjs &lt;關&gt;</code> 沒輸出）。</li>
+</ul>
+<h3>11.4 街景與畫面</h3>
+<ul class="check">
+<li>五種路段的斷面與街景元素符合 6.2、6.3（磁磚、鐵窗、鐵皮加蓋、水塔、冷氣、直式招牌、騎樓與機車、電線桿與電線、待轉區、斑馬線、紅綠燈倒數、廟宇、夜市攤車都看得到）。</li>
+<li>夜晚關卡招牌發光、有泛光；雨天有雨絲與濕亮路面。</li>
+<li>每關終點有目的地建築與招牌、終點拱門。</li>
+<li>桌機高畫質 60 fps；手機高畫質低於 40 fps 會自動切省電。</li>
+</ul>
+<h3>11.5 Android App</h3>
+<ul class="check">
+<li>KMotoApp 安裝後全螢幕、固定橫向，開啟線上版遊戲，返回鍵退到背景，騎乘中螢幕不熄。</li>
+</ul>
+
+<h2 id="changelog">附錄. 版本歷史</h2>
+<p>新的版本排在最上面。</p>
+<div class="table-wrap"><table>
+<tr><th>規格版本</th><th>日期</th><th>遊戲版本</th><th>狀態</th><th>章節</th><th>改了什麼、為什麼</th></tr>
+<tr><td>1.1</td><td>2026-11-17</td><td>1.0.0</td><td><span class="tag ok">已實作</span></td><td>4.6、5.1～5.5、5.8、6.2、7.2、10.1</td><td><b>台灣交通亂象擴充＋實作後校準</b>（Ken 2026-11-17 指定：多加台灣交通亂象當障礙，例如三寶、選舉宣傳車、酒駕、毒駕，並給了一份亂象分類清單）：
+<ul><li>新增 8 種障礙：外送員分心、路邊起步不看、酒駕、毒駕、選舉宣傳車、行人走車道、右轉車切機車道、大車內輪差（5.4），以及凸起的人孔蓋／補丁路（5.5）；5.8 新增「台灣交通亂象 → 遊戲障礙」對照表；各關加入對應事件與開場介紹（7.2）。</li>
+<li>機車、腳踏車不停紅燈（搶黃燈闖紅燈），只有汽車停等；否則雙向街道會被車陣完全堵死（5.3）。</li>
+<li>社區街道斷面加寬（車道 3.6、停車格裡的車與車道上的車之間留 1.3 公尺車縫），讓停等車陣有縫可鑽（6.2）。</li>
+<li>施工封路只出現在幹道與省道、只封一個車道，車流會提早換道；被擋住超過 3 秒的車在玩家看不到的距離轉進巷子消失（5.5、5.2）。</li>
+<li>碰撞改成看「從哪個方向碰到」：從前後撞進去才摔車，側面碰到車或圍籬只是擦撞（4.6）。</li>
+<li>時限依自動駕駛校準（7.2 寫算法）。</li>
+<li>街景小物件改用 Blender 建模（冷氣、水塔、電線桿、路燈、號誌桿、行道樹、檳榔樹、郵筒、變電箱、攤車、候車亭、石獅、香爐…，Ken 指定降低方塊感）；車輛合併網格、遠處細節不畫（10.1）。</li></ul></td></tr>
+<tr><td>1.0</td><td>2026-11-17</td><td>—</td><td><span class="tag">已取代</span></td><td>全部</td><td>第一版規格（Ken 2026-11-17 指定：web 版，騎機車在台灣街道競速、閃避車輛與三寶，場景要像台灣、美術越高越好，每關一個主題，關卡要多、用障礙控制難度，完成後做 Android 殼）。</td></tr>
+</table></div>
+<footer>KMoto 企劃規格 · 規格版本 1.1 · 2026-11-17</footer>
+</main>
+</div>
+</body>
+</html>

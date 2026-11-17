@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>KMoto 街景小物件預覽</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #9fb4c8; overflow: hidden; font: 13px "Noto Sans TC", "Microsoft JhengHei", sans-serif; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #info { position: fixed; left: 8px; top: 8px; background: rgba(0,0,0,.55); color: #fff; padding: 6px 10px; border-radius: 6px; white-space: pre; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../lib/three/three.module.js", "three/addons/": "../lib/three/addons/" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="info">載入中…</div>
+<script type="module" src="preview_props.js"></script>
+</body>
+</html>

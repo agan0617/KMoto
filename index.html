@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#d9480f">
+  <title>KMoto</title>
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&family=Noto+Serif+TC:wght@900&display=swap">
+  <link rel="stylesheet" href="style.css?v=1.0.0">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./lib/three/three.module.js",
+        "three/addons/": "./lib/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <canvas id="fx"></canvas>
+  <div id="fade"></div>
+
+  <!-- HUD（規格 8.1） -->
+  <div id="hud" hidden>
+    <div class="hud-top">
+      <div id="hTime">00.0</div>
+      <div class="prog"><div class="bar"><div id="hProgFill"></div><div id="hProgBike">🛵</div><div id="hProgDest">🏁</div></div><div id="hDist">還有 0.0 km</div></div>
+    </div>
+    <div class="hud-tl"><div id="hTitle"></div><div id="hStats"></div></div>
+    <div class="hud-br">
+      <div class="boost"><div class="dots"><i id="hDot1"></i><i id="hDot2"></i></div><div class="meter"><div id="hMeter"></div></div></div>
+      <div id="hSpeed"><b>0</b><small>km/h</small></div>
+    </div>
+    <button id="btnPause" class="iconbtn" aria-label="暫停">Ⅱ</button>
+    <div id="popups"></div>
+    <div id="center"></div>
+  </div>
+
+  <!-- 觸控鈕 -->
+  <div id="touch" hidden>
+    <div id="tSteer"><div class="tl">◀</div><div class="tr">▶</div></div>
+    <div id="tRight">
+      <button data-k="horn" class="tb small">叭</button>
+      <button data-k="boost" class="tb">衝</button>
+      <button data-k="brake" class="tb">煞</button>
+    </div>
+  </div>
+
+  <!-- 首頁（規格 2.2） -->
+  <div id="menu" class="screen" hidden>
+    <div class="menu-head">
+      <div class="logo"><h1>KMoto</h1><p>台灣街頭機車狂飆</p></div>
+      <div class="menu-tools"><span id="totalStars">★ 0/60</span><button id="btnHelp" class="ghost">操作說明</button><button id="btnSettings" class="ghost">設定</button></div>
+    </div>
+    <div id="tabs" class="tabs"></div>
+    <div id="cards" class="cards"></div>
+    <div class="ver" id="ver"></div>
+  </div>
+
+  <!-- 開場卡（規格 2.3） -->
+  <div id="intro" class="screen modal" hidden>
+    <div class="card big">
+      <div class="lvno" id="iNo"></div>
+      <h2 id="iTitle"></h2>
+      <p class="story" id="iText"></p>
+      <div class="facts">
+        <div><small>目的地</small><b id="iDest"></b></div>
+        <div><small>時限</small><b id="iLimit"></b></div>
+        <div><small>距離</small><b id="iLen"></b></div>
+      </div>
+      <div class="stars-rule" id="iStars"></div>
+      <div id="iNew" class="newhaz"></div>
+      <div class="row"><button id="iBack" class="ghost">返回</button><button id="iGo" class="primary" disabled>載入中…</button></div>
+    </div>
+  </div>
+
+  <!-- 暫停（規格 2.5） -->
+  <div id="pause" class="screen modal" hidden>
+    <div class="card">
+      <h2>暫停</h2>
+      <button class="primary" data-a="resume">繼續</button>
+      <button data-a="restart">重新開始</button>
+      <button data-a="help">操作說明</button>
+      <button data-a="settings">設定</button>
+      <button data-a="home">回首頁</button>
+    </div>
+  </div>
+
+  <!-- 結算（規格 2.6） -->
+  <div id="result" class="screen modal" hidden>
+    <div class="card big">
+      <h2 id="rTitle"></h2>
+      <p class="story" id="rText"></p>
+      <div class="rstars" id="rStars"><span>★</span><span>★</span><span>★</span></div>
+      <div class="rdata" id="rData"></div>
+      <div class="row" id="rBtns"></div>
+    </div>
+  </div>
+
+  <!-- 對話框 -->
+  <div id="dlgSettings" class="screen modal" hidden>
+    <div class="card">
+      <button class="x" data-close>✕</button>
+      <h2>設定</h2>
+      <label class="opt">畫質
+        <select id="sQuality"><option value="high">高畫質</option><option value="low">省電</option></select></label>
+      <label class="opt">音量 <input id="sVolume" type="range" min="0" max="100" step="5"></label>
+      <button id="sClear" class="danger">清除紀錄</button>
+    </div>
+  </div>
+  <div id="dlgHelp" class="screen modal" hidden>
+    <div class="card help">
+      <button class="x" data-close>✕</button>
+      <h2>操作說明</h2>
+      <table>
+        <tr><th>動作</th><th>鍵盤</th><th>觸控</th></tr>
+        <tr><td>油門</td><td colspan="2">自動催油（按住煞車時不給油）</td></tr>
+        <tr><td>左右閃</td><td>A／D、← →</td><td>左下 ◀ ▶（可滑動換邊）</td></tr>
+        <tr><td>煞車</td><td>S、↓</td><td>煞</td></tr>
+        <tr><td>衝刺</td><td>空白鍵、W、↑</td><td>衝</td></tr>
+        <tr><td>喇叭</td><td>H、Shift</td><td>叭</td></tr>
+        <tr><td>暫停</td><td>Esc、P</td><td>右上 Ⅱ</td></tr>
+      </table>
+      <ul>
+        <li>從車旁 0.6 公尺內高速超過＝<b>擦身而過</b>，0.3 公尺內＝<b>驚險！</b>，都會累積衝刺。集滿一條多一次衝刺，最多存兩次。</li>
+        <li>正面撞上車、人、狗、圍籬＝<b>摔車</b>，會損失好幾秒；側面輕碰只是擦撞。</li>
+        <li>按喇叭，前方的一般車會讓路——三寶不會。</li>
+        <li>★ 抵達、★★ 剩餘時間達標、★★★ 剩餘時間達標而且整關沒摔車。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="loading" class="screen"><div class="ld"><h1>KMoto</h1><p id="ldText">載入中… 0%</p></div></div>
+  <div id="rotate">請把手機轉成橫向</div>
+  <div id="toast"></div>
+  <div id="err" hidden></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
