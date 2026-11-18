@@ -4,6 +4,7 @@ import { makeVehicle, makePedestrian, makeDog, makePlayerBike, makeProcessionUni
 import { makeRng } from '../rng.js';
 import { propGeo } from './props.js';
 import { flattenVehicle } from './flatten.js';
+import { TUNING } from '../tuning.js';
 
 const VEH = new Set(['scooter', 'oldscooter', 'bicycle', 'car', 'taxi', 'pickup', 'bus', 'truck', 'garbage', 'campaign']);
 const WHEEL_R = { campaign: 0.3, scooter: 0.25, oldscooter: 0.25, bicycle: 0.33, car: 0.32, taxi: 0.32, pickup: 0.3, bus: 0.5, truck: 0.52, garbage: 0.45 };
@@ -43,6 +44,135 @@ export class Actors {
       this.headlight = spot;
     }
     setLights(this.player, { head: this.night > 0.3 || this.wet, tail: true });
+    this.fly = null; this.flyPos = null;
+    this._makeSpray();
+  }
+
+  // 水花粒子（積水打滑，規格 5.5、9.2）
+  _makeSpray() {
+    const N = 90;
+    const g = new THREE.BufferGeometry();
+    this.sprayPos = new Float32Array(N * 3);
+    g.setAttribute('position', new THREE.BufferAttribute(this.sprayPos, 3));
+    const m = new THREE.PointsMaterial({ color: '#dbe8f2', size: 0.09, transparent: true, opacity: 0.85, depthWrite: false });
+    this.spray = new THREE.Points(g, m);
+    this.spray.frustumCulled = false;
+    this.root.add(this.spray);
+    this.drops = Array.from({ length: N }, () => ({ life: 0, p: new THREE.Vector3(0, -10, 0), v: new THREE.Vector3() }));
+    this._dropI = 0;
+  }
+
+  _emit(n, big) {
+    const o = this.player, sm = this.sim.player.R.sample(this.sim.player.s, {});
+    const v = this.sim.player.v;
+    for (let k = 0; k < n; k++) {
+      const d = this.drops[this._dropI++ % this.drops.length];
+      d.life = 0.5 + Math.random() * 0.4;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      d.p.set(o.position.x - sm.fx * 0.6 + sm.rx * side * 0.15, 0.08, o.position.z - sm.fz * 0.6 + sm.rz * side * 0.15);
+      const out = (big ? 3 : 1.6) * (0.5 + Math.random());
+      d.v.set(sm.fx * v * 0.55 + sm.rx * side * out, (big ? 2.6 : 1.4) * (0.6 + Math.random()), sm.fz * v * 0.55 + sm.rz * side * out);
+    }
+  }
+
+  splash() { this._emit(60, true); }
+
+  _updateSpray(dt) {
+    const a = this.sprayPos;
+    this.drops.forEach((d, i) => {
+      if (d.life > 0) {
+        d.life -= dt;
+        d.v.y -= 9.8 * dt;
+        d.p.addScaledVector(d.v, dt);
+        if (d.p.y < 0) d.life = 0;
+      }
+      const vis = d.life > 0;
+      a[i * 3] = d.p.x; a[i * 3 + 1] = vis ? d.p.y : -50; a[i * 3 + 2] = d.p.z;
+    });
+    this.spray.geometry.attributes.position.needsUpdate = true;
+  }
+
+  // 摔車：騎士與 Komugi 飛出去（規格 4.7）
+  _startFly(p) {
+    const ud = this.player.userData;
+    this.player.updateMatrixWorld(true);
+    const sm = p.R.sample(p.s, {});
+    const f = new THREE.Vector3(sm.fx, 0, sm.fz), r = new THREE.Vector3(sm.rx, 0, sm.rz);
+    const v0 = Math.max(4, (p.crash.v0 || p.v) * 0.7);
+    const vy = Math.min(7, 2.5 + (p.crash.v0 || p.v) * 0.12);
+    const side = p.crash.side || 1;
+    const bodies = [];
+    const add = (node, k) => {
+      if (!node) return;
+      const pivot = new THREE.Group();
+      pivot.position.copy(node.localToWorld(new THREE.Vector3(0, k.cy, k.cz)));
+      this.root.add(pivot);
+      const orig = { parent: node.parent, pos: node.position.clone(), quat: node.quaternion.clone(), scale: node.scale.clone() };
+      pivot.attach(node);
+      const vel = f.clone().multiplyScalar(v0 * k.v).addScaledVector(r, side * k.lat);
+      vel.y = vy * k.vy;
+      bodies.push({ node, pivot, orig, vel, spin: -9.4 * k.spin, roll: (Math.random() - 0.5) * 3, ground: k.ground, f: f.clone(), r: r.clone(), landed: false, rider: k.rider });
+    };
+    add(ud.rider, { cy: 1.1, cz: -0.25, v: 1, vy: 1, lat: 1.2, spin: 1, ground: 0.32, rider: true });
+    add(ud.komugi, { cy: 0.2, cz: 0, v: 0.75, vy: 0.7, lat: -1.0, spin: 1.4, ground: 0.14 });
+    this.fly = { bodies };
+  }
+
+  _stepFly(dt) {
+    for (const b of this.fly.bodies) {
+      b.vel.y -= 9.8 * dt;
+      b.pivot.position.addScaledVector(b.vel, dt);
+      if (b.pivot.position.y < b.ground) {
+        b.pivot.position.y = b.ground;
+        if (b.vel.y < -1.5) {
+          b.vel.y = -b.vel.y * 0.3;
+          if (!b.landed && b.rider && this.onLand) this.onLand();
+          b.landed = true;
+        } else b.vel.y = 0;
+      }
+      if (b.pivot.position.y <= b.ground + 0.02) {
+        // 在地上翻滾滑行：每秒剩 5%
+        const fr = Math.pow(0.05, dt);
+        b.vel.x *= fr; b.vel.z *= fr;
+        b.spin *= Math.pow(0.12, dt); b.roll *= Math.pow(0.12, dt);
+      }
+      b.pivot.rotateOnWorldAxis(b.r, b.spin * dt);
+      b.pivot.rotateOnWorldAxis(b.f, b.roll * dt);
+      if (b.rider) this.flyPos = b.pivot.position;
+    }
+  }
+
+  _endFly() {
+    for (const b of this.fly.bodies) {
+      b.orig.parent.add(b.node);
+      b.node.position.copy(b.orig.pos); b.node.quaternion.copy(b.orig.quat); b.node.scale.copy(b.orig.scale);
+      this.root.remove(b.pivot);
+    }
+    this.fly = null; this.flyPos = null;
+  }
+
+  // 積水：不規則的大片水面（晴天外圍多一圈濕痕）
+  _puddle(e) {
+    const g = new THREE.Group();
+    const ph = (e.shape || 0) * 6.28;
+    const outline = (k) => {
+      const sh = new THREE.Shape();
+      const N = 30;
+      for (let i = 0; i <= N; i++) {
+        const a = i / N * Math.PI * 2;
+        const rr = k * (1 + 0.16 * Math.sin(3 * a + ph) + 0.09 * Math.sin(5 * a + ph * 2.3) + 0.05 * Math.sin(9 * a + ph * 0.7));
+        const x = Math.cos(a) * rr * e.wid / 2, y = Math.sin(a) * rr * e.len / 2;
+        if (i === 0) sh.moveTo(x, y); else sh.lineTo(x, y);
+      }
+      return new THREE.ShapeGeometry(sh, 2);
+    };
+    const M = this.M;
+    if (e.dry) {
+      const ring = new THREE.Mesh(outline(1.25), M.wetRing); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.011; g.add(ring);
+    }
+    const m = new THREE.Mesh(outline(1), M.puddle); m.rotation.x = -Math.PI / 2; m.position.y = 0.014; g.add(m);
+    g.userData.ownGeo = true;
+    return g;
   }
 
   _statics() {
@@ -52,7 +182,8 @@ export class Actors {
       black: new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.8 }),
       hole: new THREE.MeshStandardMaterial({ color: '#1d1c1a', roughness: 1, polygonOffset: true, polygonOffsetFactor: -3 }),
       holeRim: new THREE.MeshStandardMaterial({ color: '#3a3733', roughness: 1, polygonOffset: true, polygonOffsetFactor: -2 }),
-      puddle: new THREE.MeshStandardMaterial({ color: '#2a3138', roughness: 0.04, metalness: 0.7, polygonOffset: true, polygonOffsetFactor: -3, transparent: true, opacity: 0.88 }),
+      puddle: new THREE.MeshStandardMaterial({ color: '#56677a', roughness: 0.02, metalness: 0.9, polygonOffset: true, polygonOffsetFactor: -3, transparent: true, opacity: 0.9 }),
+      wetRing: new THREE.MeshStandardMaterial({ color: '#2e2d2b', roughness: 0.35, metalness: 0.2, polygonOffset: true, polygonOffsetFactor: -2, transparent: true, opacity: 0.55 }),
       manhole: new THREE.MeshStandardMaterial({ color: '#4a4844', roughness: this.wet ? 0.2 : 0.6, metalness: 0.7, polygonOffset: true, polygonOffsetFactor: -3 }),
       box: new THREE.MeshStandardMaterial({ color: '#b98a55', roughness: 0.9 }),
       bag: new THREE.MeshStandardMaterial({ color: '#151515', roughness: 0.35 }),
@@ -94,7 +225,6 @@ export class Actors {
         const h = new THREE.Mesh(new THREE.CircleGeometry(0.48, 8), M.hole); h.rotation.x = -Math.PI / 2; h.position.y = 0.016; h.scale.set(1, 0.8, 1); g.add(h);
         return g;
       },
-      puddle: () => { const m = new THREE.Mesh(new THREE.CircleGeometry(1, 20), M.puddle); m.rotation.x = -Math.PI / 2; m.position.y = 0.014; m.scale.set(0.9, 1.5, 1); const g = new THREE.Group(); g.add(m); return g; },
       bump: () => {
         // 凸起的人孔蓋＋周圍的補丁柏油
         const g = new THREE.Group();
@@ -113,13 +243,14 @@ export class Actors {
     let o;
     const key = e.kind === 'proc' ? 'proc_' + e.unit : e.kind;
     const pl = this.pool.get(key);
-    if (pl && pl.length && !VEH.has(e.kind) && e.kind !== 'ped' && e.kind !== 'dog' && e.kind !== 'proc') o = pl.pop();
+    if (pl && pl.length && !VEH.has(e.kind) && e.kind !== 'ped' && e.kind !== 'dog' && e.kind !== 'proc' && e.kind !== 'puddle') o = pl.pop();
     if (!o) {
       if (VEH.has(e.kind)) o = makeVehicle(e.kind, { seed: e.seed, rider: !e.parked, raincoat: this.wet && (e.seed % 3 === 0), cargo: e.cargo });
       else if (e.kind === 'ped') o = makePedestrian({ seed: e.seed, phone: !!e.phone, bag: !!e.bag, raincoat: this.wet && e.seed % 2 === 0, umbrella: this.wet && e.seed % 2 === 1 });
       else if (e.kind === 'dog') o = makeDog({ seed: e.seed });
       else if (e.kind === 'proc') o = makeProcessionUnit(e.unit, { seed: e.seed });
       else if (e.kind === 'fallen') { o = new THREE.Group(); const v = makeVehicle('scooter', { seed: e.seed, rider: false }); v.rotation.z = Math.PI / 2 - 0.15; v.position.y = 0.38; o.add(v); }
+      else if (e.kind === 'puddle') o = this._puddle(e);
       else if (this._mk[e.kind]) o = this._mk[e.kind]();
       else return null;
       if (VEH.has(e.kind) || e.kind === 'ped' || e.kind === 'dog' || e.kind === 'proc') flattenVehicle(o);
@@ -139,6 +270,7 @@ export class Actors {
 
   _release(o) {
     this.root.remove(o);
+    if (o.userData.ownGeo) { o.traverse((c) => { if (c.isMesh) c.geometry.dispose(); }); return; }
     const k = o.userData.key;
     if (!this.pool.has(k)) this.pool.set(k, []);
     const pl = this.pool.get(k);
@@ -167,7 +299,8 @@ export class Actors {
       const near = Math.abs(e.s - p.s) < 70;
       if (rec.near !== near) { rec.near = near; o.traverse((c) => { if (c.isMesh && !['pothole', 'puddle', 'manhole', 'bump'].includes(e.kind)) c.castShadow = near; }); }
       const x = e.xDraw ?? e.x;
-      R.toWorld(e.s, x, tmp);
+      const Re = e.R || R;
+      Re.toWorld(e.s, x, tmp);
       o.position.set(tmp.wx, 0, tmp.wz);
       o.rotation.y = tmp.th - (e.ang || 0);
       if (VEH.has(e.kind)) {
@@ -223,7 +356,7 @@ export class Actors {
         const k = rec.knock;
         k.t += dt;
         const ds = k.vs * Math.min(k.t, 1.2);
-        R.toWorld(e.s + ds, x + k.vx * Math.min(k.t, 1.2), tmp);
+        Re.toWorld(e.s + ds, x + k.vx * Math.min(k.t, 1.2), tmp);
         o.position.set(tmp.wx, Math.max(0, k.vy * k.t - 4.9 * k.t * k.t), tmp.wz);
         o.rotation.x = k.spin * Math.min(k.t, 1.2); o.rotation.z = k.spin * 0.6 * Math.min(k.t, 1.2);
       }
@@ -235,7 +368,7 @@ export class Actors {
   }
 
   _updatePlayer(dt, blinkOn) {
-    const sim = this.sim, p = sim.player, R = this.route, o = this.player, ud = o.userData;
+    const sim = this.sim, p = sim.player, R = p.R, o = this.player, ud = o.userData;
     R.toWorld(p.s, p.x, this._s);
     o.position.set(this._s.wx, 0, this._s.wz);
     // 傾車：依橫向速度（右傾＝lean.rotation.z 為正）
@@ -246,8 +379,12 @@ export class Actors {
       const dir = p.vx >= 0 ? 1 : -1;
       leanT = dir * Math.min(1.45, t * 6);
       yaw = p.ang + dir * Math.min(1.2, t * 2.5);
-      ud.rider.position.y = -Math.min(0.5, t * 1.2);
-    } else ud.rider.position.y = 0;
+    }
+    // 積水打滑：車身左右晃、輪後噴水（規格 9.2）
+    if (p.slipT > 0 && !p.crash) {
+      leanT += Math.sin(sim.clock * 17) * 0.2 * Math.min(1, p.slipT / TUNING.slipAfter);
+      if (p.slipT >= TUNING.slipAfter - 0.02 && p.v > 3 && dt > 0) this._emit(2, false);
+    }
     this.leanA += (leanT - this.leanA) * Math.min(1, dt * (p.crash ? 20 : 9));
     ud.lean.rotation.z = this.leanA;
     this.yawA += (yaw - this.yawA) * Math.min(1, dt * 12);
@@ -261,6 +398,11 @@ export class Actors {
     this.flame.visible = p.boostT > 0 && !p.crash;
     if (this.flame.visible) { const s = 0.9 + Math.random() * 0.5; this.flame.scale.set(1, s, 1); }
     setLights(o, { brake: p.brake || p.crash });
+    // 騎士飛出去（位置要在機車擺好之後才取）
+    if (p.crash && !this.fly && dt > 0) this._startFly(p);
+    else if (!p.crash && this.fly) this._endFly();
+    if (this.fly && dt > 0) this._stepFly(dt);
+    this._updateSpray(dt);
   }
 
   dispose() {

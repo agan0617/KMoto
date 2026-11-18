@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import { LEVELS, DESTS, HAZARD_INFO } from '../js/levels.js';
 
+const BR = { market: '夜市', lane: '巷子', oneway: '大馬路' };
 const TIME = { morning: '早上', noon: '中午', dusk: '黃昏', night: '夜晚', rain: '雨' };
 const EV = {
   uncle: '阿伯', ped: '行人', alley: '巷口竄出', cutin: '切車道', bus: '公車切出', taxi: '小黃急停', double: '併排停車',
@@ -11,7 +12,7 @@ const EV = {
   rightturn: '右轉切車', bigturn: '內輪差',
 };
 const rows = LEVELS.map((l) => {
-  const segs = l.segs.map(([t, n]) => `${t} ${n}`).join('＋');
+  const segs = l.segs.map(([t, n, a, b]) => (t === 'fork' ? `分岔 ${n}（${BR[a]}｜${BR[b]}）` : `${t} ${n}`)).join('＋');
   const ev = l.events.length >= 17 ? '全部' : l.events.map((e) => EV[e] || e).join('、');
   const nw = l.intro.length ? l.intro.map((k) => HAZARD_INFO[k].name).join('、') : '—';
   const wx = l.weather === 'typhoon' ? '（颱風）' : '';

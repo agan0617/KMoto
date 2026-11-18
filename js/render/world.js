@@ -1,8 +1,8 @@
 // 街景（規格第 6 章）：路面、標線、建築、招牌、電線桿、號誌、夜市、省道、目的地。
 // 沿路線分成 40 公尺的區塊，玩家前方 340、後方 60 公尺內才建，同材質合併成一個網格。
 import * as THREE from 'three';
-import { Bucket, box, quad, cyl, mat, ribbon, wallRibbon, frameAt, prep } from './geo.js';
-import { PROFILES, PRE, POST } from '../route.js';
+import { Bucket, box, quad, cyl, mat, ribbon, wallRibbon, frameAt, prep, stripPts, wallPts } from './geo.js';
+import { PROFILES, PRE, POST, RAMP } from '../route.js';
 import { makeRng, hashStr } from '../rng.js';
 import { TILE_COLORS, FONT, SERIF, shade } from './textures.js';
 import { DESTS } from '../levels.js';
@@ -25,10 +25,12 @@ export const ENV = {
 };
 
 export class World {
-  constructor(scene, sim, T, envKey) {
+  // opts.route：分岔裡的一條路（規格 6.6）——這個 World 只蓋那條路；opts.mats：共用材質
+  constructor(scene, sim, T, envKey, opts = {}) {
     this.scene = scene;
     this.sim = sim;
-    this.route = sim.route;
+    this.route = opts.route || sim.route;
+    this.br = this.route.branch ? this.route : null;
     this.level = sim.level;
     this.T = T;
     this.env = ENV[envKey];
@@ -37,7 +39,16 @@ export class World {
     this.root = new THREE.Group();
     scene.add(this.root);
     this.dynamic = []; // 每幀要更新的（號誌）
-    this.mats = this._materials();
+    this.sharedMats = !!opts.mats;
+    this.mats = opts.mats || this._materials();
+    // 分岔：路段範圍；內側（靠另一條路）可以放人行道、房子的 s 範圍
+    this.r0 = this.br ? this.br.s0 : -PRE;
+    this.r1 = this.br ? this.br.s1 : sim.L + POST;
+    if (this.br) {
+      const f = this.br.fork;
+      this.walkOpen = f.openRange(f.needWalk) || [0, -1];
+      this.buildOpen = f.openRange(f.needBuild) || [0, -1];
+    }
     this._planLots();
     this._planPoles();
   }
@@ -46,7 +57,14 @@ export class World {
     for (const g of this.chunks.values()) this._disposeChunk(g);
     this.chunks.clear();
     this.scene.remove(this.root);
-    for (const m of Object.values(this.mats)) m.dispose();
+    if (!this.sharedMats) for (const m of Object.values(this.mats)) m.dispose();
+  }
+
+  // 分岔路的內側：這個 s 能不能放人行道（walk）或房子（build）
+  _innerOK(s, side, kind = 'walk') {
+    if (!this.br || side !== this.br.inner) return true;
+    const r = kind === 'walk' ? this.walkOpen : this.buildOpen;
+    return s >= r[0] && s <= r[1];
   }
 
   // ---------- 材質 ----------
@@ -100,19 +118,24 @@ export class World {
 
   // ---------- 建築地塊規劃（整條路線一次算好，區塊只負責蓋） ----------
   _planLots() {
-    const route = this.route, L = this.sim.L;
+    const route = this.route, L = this.sim.L, br = this.br;
     this.lots = [];
     for (const side of [1, -1]) {
-      const rng = makeRng(hashStr(`lots:${this.level.id}:${side}`));
-      let s = -PRE + 2;
-      while (s < L + POST - 10) {
+      const rng = makeRng(hashStr(`lots:${this.level.id}:${side}` + (br ? `:${br.s0}:${br.branch}` : '')));
+      let s = br ? br.s0 : -PRE + 2;
+      const end = br ? br.s1 : L + POST - 10;
+      const inner = br && side === br.inner;
+      while (s < end) {
         const sec = route.sectionAt(s);
         const type = sec.type;
+        if (type === 'fork') { s = sec.s1; continue; }
         // 路口：留出橫向街道
         const it = this._gapAt(s, side);
         if (it) { s = it.s + it.half + 0.6; continue; }
+        // 分岔內側：兩條路分得夠開才蓋房子（規格 6.6）
+        if (inner && !this._innerOK(s, side, 'build')) { s += 2; continue; }
         // 目的地（右側）
-        if (side > 0 && s > L - 6 && s < L + 60 && !this._destDone) {
+        if (!br && side > 0 && s > L - 6 && s < L + 60 && !this._destDone) {
           this._destDone = true;
           this.lots.push({ s0: L + 4, w: 36, type, side, kind: 'dest' });
           s = L + 42;
@@ -134,11 +157,12 @@ export class World {
           continue;
         }
         let w;
-        if (type === 'avenue') w = rng.range(8, 15);
-        else if (type === 'alley') w = rng.range(3.8, 5.6);
+        if (type === 'avenue' || type === 'oneway') w = rng.range(8, 15);
+        else if (type === 'alley' || type === 'lane') w = rng.range(3.8, 5.6);
         else w = rng.range(4.0, 6.2);
         let kind = 'house';
         if ((type === 'street') && rng() < 0.04) { kind = 'temple'; w = 15; }
+        if (inner && !this._innerOK(s + w, side, 'build')) { s += 2; continue; }
         const nx = this._nextGap(s, side);
         if (nx && s + w > nx - 0.5) {
           const left = nx - s;
@@ -148,7 +172,15 @@ export class World {
           const left = sec.s1 - s;
           if (left >= 3.2) w = left; else { s = sec.s1; continue; }
         }
-        this.lots.push({ s0: s, w, type, side, kind, seed: rng() });
+        const lot = { s0: s, w, type, side, kind, seed: rng() };
+        if (inner) {
+          // 房子深度：兩條路中間的街廓一半
+          const f = br.fork, P = PROFILES[type];
+          const g = Math.min(f.gap(s), f.gap(s + w));
+          lot.maxD = Math.max(6, (g - f.Lv.walk(1) - f.Rv.walk(-1)) / 2 - 0.6);
+          lot.inner = true;
+        }
+        this.lots.push(lot);
         s += w;
       }
     }
@@ -173,16 +205,17 @@ export class World {
   _planPoles() {
     // 電線桿（巷弄、街道、省道），整條路一次算好，電線才連得起來
     this.poles = [];
-    const rng = makeRng(hashStr('poles:' + this.level.id));
+    const rng = makeRng(hashStr('poles:' + this.level.id + (this.br ? ':' + this.br.branch : '')));
     const L = this.sim.L;
-    for (let s = -40; s < L + 120;) {
+    for (let s = this.br ? this.br.s0 + 5 : -40; s < (this.br ? this.br.s1 - 5 : L + 120);) {
       const type = this.route.typeAt(s);
       const step = type === 'highway' ? 42 : type === 'avenue' ? 1e9 : 30;
-      if (type === 'avenue' || type === 'market') { s += 10; continue; }
+      if (type === 'avenue' || type === 'market' || type === 'oneway' || type === 'fork') { s += 10; continue; }
       if (!this.route.interAt(s, 2)) {
         const prof = PROFILES[type];
-        const side = type === 'alley' ? (Math.floor(s / 60) % 2 ? 1 : -1) : 1;
-        const x = type === 'alley' ? side * 3.45 : type === 'street' ? side * 5.4 : 7.2;
+        // 分岔的巷子：電線桿只放外側
+        const side = this.br ? this.br.branch : type === 'alley' ? (Math.floor(s / 60) % 2 ? 1 : -1) : 1;
+        const x = type === 'alley' || type === 'lane' ? side * 3.45 : type === 'street' ? side * 5.4 : 7.2;
         this.poles.push({ s, x, type, side, h: type === 'highway' ? 10 : 8.6, tr: rng() < 0.3, seed: rng() });
       }
       s += step * rng.range(0.85, 1.15);
@@ -239,13 +272,16 @@ export class World {
     const B = new Bucket();
     const rng = makeRng(hashStr(`chunk:${this.level.id}:${i}`));
     const route = this.route;
-    if (c1 < -PRE || c0 > this.sim.L + POST) return g;
-    // 路面：依路段切開
+    if (c1 < this.r0 || c0 > this.r1) return g;
+    // 路面：依路段切開（主線的分岔段由分岔的兩個 World 蓋）
     for (const sec of route.sections) {
+      if (sec.type === 'fork') continue;
       const a = Math.max(c0, sec.s0), b = Math.min(c1, sec.s1);
       if (a >= b) continue;
       this._road(B, sec.type, a, b, rng);
     }
+    // 分岔：槽化線、島頭、中間街廓的地面、門架指示牌（規格 6.6）
+    for (const f of route.forks) this._forkDeco(B, g, f, c0, c1);
     // 路口
     for (const it of route.inters) if (it.s >= c0 && it.s < c1) this._intersection(B, g, it, rng);
     // 建築
@@ -257,22 +293,29 @@ export class World {
     }
     // 路樹、路燈、分隔島、夜市攤位、捷運高架
     for (const sec of route.sections) {
+      if (sec.type === 'fork') continue;
       const a = Math.max(c0, sec.s0), b = Math.min(c1, sec.s1);
       if (a >= b) continue;
       this._roadside(B, g, sec, a, b, rng);
     }
     // 終點拱門
     const L = this.sim.L;
-    if (L >= c0 && L < c1) this._finish(B, g);
+    if (!this.br && L >= c0 && L < c1) this._finish(B, g);
     B.build(g, this.mats);
     return g;
   }
 
   // 路口範圍內（這一側）要讓開的 s 區間
-  _cuts(a, b, side, pad = 0) {
+  _cuts(a, b, side, pad = 0, noInters = false) {
     const out = [];
     let s = a;
-    const its = this.route.inters.filter((it) => it.s + it.half + pad > a && it.s - it.half - pad < b);
+    // 分岔路的內側：只在兩條路分得夠開的範圍
+    if (this.br && side === this.br.inner) {
+      a = Math.max(a, this.walkOpen[0]); b = Math.min(b, this.walkOpen[1]);
+      s = a;
+      if (a >= b) return out;
+    }
+    const its = noInters ? [] : this.route.inters.filter((it) => it.s + it.half + pad > a && it.s - it.half - pad < b);
     for (const it of its) {
       if (it.kind === 'mouth' && side && it.side !== 'both' && (it.side === 'L') !== (side < 0)) continue;
       const lo = it.s - it.half - pad, hi = it.s + it.half + pad;
@@ -298,7 +341,28 @@ export class World {
     };
     const line = (m, x, w, y = 0.012, side = 0) => { for (const [u, v] of this._cuts(a, b, side, 0.5)) B.add(m, ribbon(R, u, v, x - w / 2, x + w / 2, y, { step: 3 })); };
     const ext = 30; // 建築後面補地面
-    if (type === 'alley') {
+    if (type === 'oneway') {
+      // 單行大馬路（分岔專用，規格 6.2）：三車道同向、兩側寬人行道與騎樓
+      strip('asphalt', P.left, P.right, 0, { uvScale: 5 });
+      curb(P.right, 0.16, -1, 1); curb(P.left, 0.16, 1, -1);
+      stripCut('curb', P.right, P.right + 0.25, 0.16, 1); stripCut('curb', P.left - 0.25, P.left, 0.16, -1);
+      stripCut('brick', P.right + 0.25, P.facadeR + 0.05, 0.16, 1, { uvScale: 2 });
+      stripCut('brick', P.facadeL - 0.05, P.left - 0.25, 0.16, -1, { uvScale: 2 });
+      stripCut('floor', P.facadeR + 0.05, P.facadeR + P.arcade + 0.3, 0.17, 1, { uvScale: 2 });
+      stripCut('floor', P.facadeL - P.arcade - 0.3, P.facadeL - 0.05, 0.17, -1, { uvScale: 2 });
+      dash('markW', -1.2, 0.12);
+      line('markW', 2.1, 0.12);
+      line('markR', P.right - 0.1, 0.12, 0.013, 1);
+      line('markR', P.left + 0.1, 0.12, 0.013, -1);
+      for (let k = Math.ceil(a / 50) * 50 + 20; k < b; k += 50) this._decal(B, 'text_機車優先', k, 3.3, 1.4, 5.6);
+    } else if (type === 'lane') {
+      // 巷子單行道（分岔專用）
+      strip('asphalt', P.left, P.right, 0, { uvScale: 5 });
+      stripCut('concrete', P.right, P.facadeR + 0.2, 0.03, 1);
+      stripCut('concrete', P.facadeL - 0.2, P.left, 0.03, -1);
+      line('markR', P.right - 0.08, 0.1, 0.013, 1);
+      line('markR', P.left + 0.08, 0.1, 0.013, -1);
+    } else if (type === 'alley') {
       strip('asphalt', P.left, P.right, 0, { uvScale: 5 });
       stripCut('concrete', P.right, P.facadeR + 0.2, 0.03, 1);
       stripCut('concrete', P.facadeL - 0.2, P.left, 0.03, -1);
@@ -383,8 +447,93 @@ export class World {
     // 建築後面的地面（避免從路口看到空洞）
     if (type !== 'highway') {
       const fr = P.facadeR + (P.arcade || 0) + 0.3, fl = P.facadeL - (P.arcade || 0) - 0.3;
-      strip('asphaltDark', fr, fr + ext, 0.0, { uvScale: 6 });
-      strip('asphaltDark', fl - ext, fl, 0.0, { uvScale: 6 });
+      if (this.br) {
+        // 分岔：內側由主線的街廓地面補（_forkDeco），這裡只補外側
+        const out = this.br.branch;
+        if (out > 0) strip('asphaltDark', fr, fr + ext, 0.0, { uvScale: 6 });
+        else strip('asphaltDark', fl - ext, fl, 0.0, { uvScale: 6 });
+      } else {
+        strip('asphaltDark', fr, fr + ext, 0.0, { uvScale: 6 });
+        strip('asphaltDark', fl - ext, fl, 0.0, { uvScale: 6 });
+      }
+    }
+  }
+
+  // ---------- 分岔（規格 6.6） ----------
+  _forkDeco(B, g, f, c0, c1) {
+    const L = f.Lv, R = f.Rv;
+    const eL = (s, d = 0) => L.toWorld(s, L.P.right + d, {});
+    const eR = (s, d = 0) => R.toWorld(s, R.P.left - d, {});
+    const span = (a, b, step = 2) => { const out = []; const n = Math.max(1, Math.ceil((b - a) / step)); for (let i = 0; i <= n; i++) out.push(a + (b - a) * i / n); return out; };
+    const walk = f.openRange(f.needWalk) || [f.s1, f.s0];
+    const tip = f.openRange(2.5) || [f.s1, f.s0];
+    const zero = f.openRange(0.05) || [f.s1, f.s0];
+    const a = Math.max(c0, f.s0), b = Math.min(c1, f.s1);
+    if (a < b) {
+      // 兩條路中間的地面（房子底下、空地）
+      const A = Math.max(a, zero[0]), Z = Math.min(b, zero[1]);
+      if (A < Z) { const ss = span(A, Z); B.add('asphaltDark', stripPts(ss.map((s) => eL(s)), ss.map((s) => eR(s)), -0.004)); }
+      // 島：島頭到兩邊人行道出現之間，草地＋路緣
+      for (const [p, q] of [[tip[0], walk[0] + 4], [walk[1] - 4, tip[1]]]) {
+        const A2 = Math.max(a, p), Z2 = Math.min(b, q);
+        if (A2 >= Z2) continue;
+        const ss = span(A2, Z2, 1.5);
+        const inL = (s) => s > walk[0] && s < walk[1] ? L.walk(1) - 0.3 : 0.25;
+        const inR = (s) => s > walk[0] && s < walk[1] ? R.walk(-1) - 0.3 : 0.25;
+        B.add('grass', stripPts(ss.map((s) => eL(s, inL(s))), ss.map((s) => eR(s, inR(s))), 0.17, 3));
+        B.add('curb', stripPts(ss.map((s) => eL(s)), ss.map((s) => eL(s, 0.25)), 0.17));
+        B.add('curb', stripPts(ss.map((s) => eR(s, 0.25)), ss.map((s) => eR(s)), 0.17));
+        B.add('curb', wallPts(ss.map((s) => eL(s)), 0, 0.17));
+        B.add('curb', wallPts(ss.map((s) => eR(s)), 0, 0.17));
+      }
+      // 槽化線：兩條路剛分開、還沒有島的那一段（白色邊線＋斜紋）
+      for (const [p, q] of [[zero[0], tip[0]], [tip[1], zero[1]]]) {
+        const A3 = Math.max(a, p - 25), Z3 = Math.min(b, q);
+        if (A3 >= Z3) continue;
+        const ss = span(A3, Z3, 1);
+        B.add('markW', stripPts(ss.map((s) => eL(s, -0.05)), ss.map((s) => eL(s, 0.12)), 0.03));
+        B.add('markW', stripPts(ss.map((s) => eR(s, 0.12)), ss.map((s) => eR(s, -0.05)), 0.03));
+        for (let s = Math.ceil(A3 / 3) * 3; s < Z3; s += 3) {
+          if (f.gap(s) < 0.4) continue;
+          const l0 = eL(s, 0.1), l1 = eL(s + 0.5, 0.1), r0 = eR(s + 1.4, 0.1), r1 = eR(s + 1.9, 0.1);
+          B.add('markW', stripPts([l0, r0], [l1, r1], 0.031));
+        }
+      }
+      // 島頭柱（黃黑斜紋）
+      for (const s of [tip[0], tip[1]]) {
+        if (s < a || s >= b) continue;
+        const m = eL(s, 0), n = eR(s, 0);
+        const cx = (m.wx + n.wx) / 2, cz = (m.wz + n.wz) / 2;
+        for (let k = 0; k < 5; k++) B.add('vcol', cyl(0.16, 0.16, 0.22, 12), mat(cx, 0.28 + k * 0.22, cz), k % 2 ? 0x1a1a1a : 0xf2c21a);
+        B.add('vcol', cyl(0.18, 0.18, 0.06, 12), mat(cx, 1.4, cz), 0xf2c21a);
+      }
+    }
+    // 門架式指示牌：分岔點前 80 公尺（主線）
+    const gs = f.s0 - 80;
+    if (gs >= c0 && gs < c1) this._forkSign(B, g, f, gs);
+  }
+
+  _forkSign(B, g, f, s) {
+    const R = this.route, b = R.bounds(s);
+    const F = frameAt(R, s, 0, -1); // ex＝+f，ez＝+r
+    const add = (m, geo, l, c) => B.add(m, geo, F.clone().multiply(l), c);
+    const xl = b.left - 0.9, xr = b.right + 0.9, w = xr - xl;
+    for (const z of [xl, xr]) add('metal', cyl(0.16, 0.18, 7.2, 12), mat(0, 3.6, z));
+    add('metal', box(0.25, 0.3, w + 0.4), mat(0, 6.9, (xl + xr) / 2));
+    add('metal', box(0.18, 0.18, w + 0.4), mat(0, 5.2, (xl + xr) / 2));
+    const sm = R.sample(s, {});
+    const pw = Math.min(5.2, w / 2 - 0.35);
+    const items = [[`↖ ${f.names[0]}`, (xl + xr) / 2 - w / 4], [`${f.names[1]} ↗`, (xl + xr) / 2 + w / 4]];
+    for (const [text, x] of items) {
+      const t = this._textTex(text, '#ffffff', '#1d4fa3', 1024, 400, FONT);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(pw, pw * 400 / 1024), new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: '#ffffff', emissiveIntensity: 0.25 + this.night * 1.1, roughness: 0.5 }));
+      m.position.set(sm.x + sm.rx * x - sm.fx * 0.2, 6.05, sm.z + sm.rz * x - sm.fz * 0.2);
+      m.rotation.y = sm.th + Math.PI;
+      this._curAdd(g, m);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(pw + 0.1, pw * 400 / 1024 + 0.1, 0.08), new THREE.MeshStandardMaterial({ color: '#c9cdd1', metalness: 0.6, roughness: 0.4 }));
+      back.position.set(sm.x + sm.rx * x - sm.fx * 0.15 + sm.fx * 0.06, 6.05, sm.z + sm.rz * x - sm.fz * 0.15 + sm.fz * 0.06);
+      back.rotation.y = sm.th + Math.PI;
+      this._curAdd(g, back);
     }
   }
 
@@ -536,12 +685,13 @@ export class World {
     const arcade = P.arcade || 0;
     let floors;
     if (lot.type === 'avenue') floors = rng.int(6, 13);
-    else if (lot.type === 'alley') floors = rng.int(2, 4);
+    else if (lot.type === 'oneway') floors = rng.int(5, 11);
+    else if (lot.type === 'alley' || lot.type === 'lane') floors = rng.int(2, 4);
     else if (lot.type === 'market') floors = rng.int(2, 4);
     else floors = rng() < 0.12 ? rng.int(6, 8) : rng.int(3, 5);
     const G = arcade ? 3.6 : 3.3, FH = 3.15;
     const top = G + (floors - 1) * FH;
-    const d = lot.type === 'avenue' ? rng.range(14, 20) : rng.range(9, 14);
+    const d = Math.min(lot.maxD ?? 99, lot.type === 'avenue' || lot.type === 'oneway' ? rng.range(14, 20) : rng.range(9, 14));
     const cellI = rng.int(0, 15);
     const cell = this.T.facadeCells[cellI];
     const tileCol = new THREE.Color(TILE_COLORS[cellI % TILE_COLORS.length]).getHex();
@@ -607,7 +757,7 @@ export class World {
       }
     }
     // 直式招牌（垂直於外牆，迎著騎士）
-    const vProb = { street: 0.7, alley: 0.25, market: 0.65, avenue: 0.55 }[lot.type] ?? 0.4;
+    const vProb = { street: 0.7, alley: 0.25, lane: 0.25, market: 0.65, avenue: 0.55, oneway: 0.55 }[lot.type] ?? 0.4;
     const nV = rng() < vProb ? (lot.type === 'avenue' && rng() < 0.5 ? 2 : 1) : 0;
     for (let k = 0; k < nV; k++) {
       const h = Math.min(top - G - 0.4, rng.range(3.5, lot.type === 'avenue' ? 11 : 7.5));
@@ -637,8 +787,8 @@ export class World {
     }
     const nT = rng() < 0.75 ? rng.int(1, 2) : 0;
     for (let k = 0; k < nT; k++) this._waterTank(add, rng.range(-w / 2 + 0.8, w / 2 - 0.8), top, rng.range(-d + 1.2, -1.5), rng);
-    // 遠景大樓（後排）
-    if (rng() < (lot.type === 'avenue' ? 0.5 : 0.22)) {
+    // 遠景大樓（後排；分岔內側的街廓不放，會蓋到另一條路）
+    if (!lot.inner && rng() < (lot.type === 'avenue' || lot.type === 'oneway' ? 0.5 : 0.22)) {
       const tw = rng.range(10, 18), th = rng.range(18, lot.type === 'avenue' ? 60 : 35), td = rng.range(10, 18);
       add('tower', box(tw, th, td, { uvScale: 8, faces: ['px', 'nx', 'pz', 'py'] }), mat(rng.range(-4, 4), th / 2, -d - rng.range(8, 30) - td / 2));
     }
@@ -646,7 +796,7 @@ export class World {
 
   _pickShop(rng, type) {
     const cells = this.T.shopCells;
-    const pool = type === 'alley'
+    const pool = type === 'alley' || type === 'lane'
       ? cells.filter((c) => c.kind === 'shutter' || c.kind === 'halfshutter' || rng() < 0.25)
       : cells.filter((c) => c.kind !== 'shutter' || rng() < 0.4);
     return rng.pick(pool.length ? pool : cells);
@@ -906,6 +1056,21 @@ export class World {
           else this._parkedScooter(add, 0, 0, rng, true);
         }
       }
+    } else if (sec.type === 'oneway') {
+      const ok = (s, side) => this._innerOK(s, side, 'walk');
+      each(11, 5, (s) => { if (ok(s, 1)) this._tree(B, s, P.right + 1.0, rng() < 0.5 ? 'luan' : 'banyan', rng); });
+      each(11, 10, (s) => { if (ok(s, -1)) this._tree(B, s, P.left - 1.0, rng() < 0.5 ? 'luan' : 'banyan', rng); });
+      each(33, 10, (s) => { if (ok(s, 1)) this._streetLight(B, s, P.right + 0.5, 1, rng); });
+      each(33, 26, (s) => { if (ok(s, -1)) this._streetLight(B, s, P.left - 0.5, -1, rng); });
+      // 人行道上整排停放的機車（外側）
+      const out = this.br ? this.br.branch : 1;
+      each(14, 3, (s) => {
+        const F = frameAt(R, s, out > 0 ? P.right + 2.2 : P.left - 2.2, 1);
+        for (let k = 0; k < 4; k++) this._parkedScooter((m, geo, l, c) => B.add(m, geo, F.clone().multiply(l), c), -k * 0.85, 0, rng);
+      });
+    } else if (sec.type === 'lane') {
+      const out = this.br ? this.br.branch : 1;
+      each(19, 9, (s) => { if (rng() < 0.4) { const F = frameAt(R, s, out * 3.4, out); this._pot((m, geo, l, c) => B.add(m, geo, F.clone().multiply(l), c), 0, 0.3, rng); } });
     } else if (sec.type === 'market') {
       this._stalls(B, sec, a, b, rng);
     } else if (sec.type === 'highway') {
@@ -956,6 +1121,7 @@ export class World {
     for (const side of [1, -1]) {
       for (let s = Math.ceil(a / 3.6) * 3.6; s < b; s += 3.6) {
         if (R.interAt(s, 2)) continue;
+        if (!this._innerOK(s - 2, side, 'build') || !this._innerOK(s + 2, side, 'build')) continue;
         const r2 = makeRng(hashStr(`st:${this.level.id}:${s.toFixed(1)}:${side}`));
         if (r2() < 0.12) continue;
         const F = frameAt(R, s, side * (P.right + 0.15), side);
@@ -969,6 +1135,7 @@ export class World {
     }
     // 跨街的燈泡串
     for (let s = Math.ceil(a / 7) * 7; s < b; s += 7) {
+      if (this.br && (!this._innerOK(s, this.br.inner, 'build') || !this._innerOK(s + 1.5, this.br.inner, 'build'))) continue;
       const A = R.toWorld(s, P.left - 0.3, {}), C = R.toWorld(s + 1.5, P.right + 0.3, {});
       const pts = [];
       for (let j = 0; j <= 10; j++) { const t = j / 10; pts.push(new THREE.Vector3(A.wx + (C.wx - A.wx) * t, 4.6 - 0.7 * 4 * t * (1 - t), A.wz + (C.wz - A.wz) * t)); }
@@ -979,8 +1146,9 @@ export class World {
         B.add(j % 3 === 0 ? 'lantern' : 'bulb', new THREE.SphereGeometry(j % 3 === 0 ? 0.2 : 0.08, 8, 6), m);
       }
     }
-    // 夜市牌樓（路段起點）
-    if (sec.s0 >= a - 0.01 && sec.s0 < b) this._gate(B, sec.s0 + 6);
+    // 夜市牌樓（路段起點；分岔裡放在兩條路分開之後）
+    const gs = this.br ? this.walkOpen[0] + 4 : sec.s0;
+    if (gs >= a - 0.01 && gs < b) this._gate(B, gs + 6);
   }
 
   _gate(B, s) {

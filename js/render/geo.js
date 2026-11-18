@@ -105,6 +105,7 @@ export function mat(x, y, z, ry = 0, rx = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
 // 沿 s 的帶狀面（路面、人行道）：xa→xb、高 y；UV 以公尺計
 export function ribbon(route, s0, s1, xa, xb, y, { step = 2, uvScale = 4, uvRot = false, uOff = 0 } = {}) {
   const pos = [], nor = [], uv = [];
+  y += route.yOff || 0; // 分岔的左路整條墊高一點，重疊區蓋在右路上面（規格 6.6）
   const p = {}, q = {};
   const n = Math.max(1, Math.ceil((s1 - s0) / step));
   for (let i = 0; i < n; i++) {
@@ -131,6 +132,7 @@ export function ribbon(route, s0, s1, xa, xb, y, { step = 2, uvScale = 4, uvRot 
 // 沿 s 的直立面（路緣石側面）：x 固定、y0→y1，面向 facing（+1 朝 +x）
 export function wallRibbon(route, s0, s1, x, y0, y1, facing, { step = 2, uvScale = 2 } = {}) {
   const pos = [], uv = [];
+  y0 += route.yOff || 0; y1 += route.yOff || 0;
   const n = Math.max(1, Math.ceil((s1 - s0) / step));
   for (let i = 0; i < n; i++) {
     const sa = s0 + (s1 - s0) * i / n, sb = s0 + (s1 - s0) * (i + 1) / n;
@@ -147,6 +149,39 @@ export function wallRibbon(route, s0, s1, x, y0, y1, facing, { step = 2, uvScale
   const nx = g.attributes.normal.getX(0), nz = g.attributes.normal.getZ(0);
   const want = facing; // 朝 +x（路線右方）＝ r
   if ((nx * sm.rx + nz * sm.rz) * want < 0) flip(g);
+  return g;
+}
+
+// 兩串世界座標點（A[i]、B[i] 是同一個 s 的左右兩邊）之間的水平面
+export function stripPts(A, B, y, uvScale = 4) {
+  const pos = [], nor = [], uv = [];
+  for (let i = 0; i + 1 < A.length; i++) {
+    const q = [A[i], B[i], B[i + 1], A[i], B[i + 1], A[i + 1]];
+    for (const P of q) { pos.push(P.wx, y, P.wz); nor.push(0, 1, 0); uv.push(P.wx / uvScale, P.wz / uvScale); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  fixWinding(g);
+  return g;
+}
+
+// 沿一串世界座標點的直立面（雙面：法線自己算，材質不用設雙面也看得到一側即可）
+export function wallPts(P, y0, y1, uvScale = 2) {
+  const pos = [], uv = [];
+  let d = 0;
+  for (let i = 0; i + 1 < P.length; i++) {
+    const a = P[i], b = P[i + 1];
+    const l = Math.hypot(b.wx - a.wx, b.wz - a.wz);
+    const q = [[a, y0, d], [b, y0, d + l], [b, y1, d + l], [a, y0, d], [b, y1, d + l], [a, y1, d]];
+    for (const [p, y, u] of q) { pos.push(p.wx, y, p.wz); uv.push(u / uvScale, (y - y0) / uvScale); }
+    d += l;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
   return g;
 }
 

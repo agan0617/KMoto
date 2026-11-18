@@ -209,6 +209,16 @@ export class Audio {
       case 'knock': this._thump(t, 160, 0.2, null, 0.6); this._noiseHit(t, 1200, 0.15, 0.2); break;
       case 'pothole': this._thump(t, 70, 0.25, null, 0.9); break;
       case 'splash': this._noiseHit(t, 1500, 0.5, 0.4, null, 'highpass', 0.5); break;
+      case 'skid': {
+        // 積水打滑：大水花＋輪胎尖聲（規格 9.3）
+        this._noiseHit(t, 1200, 0.7, 0.55, null, 'bandpass', 0.6);
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(1500, t); o.frequency.linearRampToValueAtTime(1100, t + 0.5);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.035, t + 0.05); g.gain.linearRampToValueAtTime(0, t + 0.55);
+        o.connect(g); g.connect(this.comp); o.start(t); o.stop(t + 0.6);
+        break;
+      }
+      case 'land': this._thump(t, 80, 0.25, null, 0.7); this._noiseHit(t, 700, 0.4, 0.2, null, 'lowpass', 0.6); break;
       case 'boost': { const f = this._noiseHit(t, 300, 0.8, 0.5, null, 'bandpass', 1.5); f.frequency.exponentialRampToValueAtTime(3000, t + 0.6); break; }
       case 'charge': this.beep(1320, 0.12, 0.12, 'triangle'); this.beep(1760, 0.15, 0.08, 'triangle'); break;
       case 'door': this._thump(t, 200, 0.12, null, 0.4); break;

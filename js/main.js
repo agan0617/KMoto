@@ -131,7 +131,11 @@ class Stage {
     this.sim = new Sim(level);
     if (attract) { this.sim.countdown = 1e9; }
     this.world = new World(scene, this.sim, T, envKey);
+    // 分岔裡的每條路各一個 World（規格 6.6），材質共用
+    this.worlds = [this.world];
+    for (const f of this.sim.route.forks) for (const v of f.views) this.worlds.push(new World(scene, this.sim, T, envKey, { route: v, mats: this.world.mats }));
     this.actors = new Actors(scene, this.sim, env);
+    this.actors.onLand = () => audio.play('land');
     if (attract) this.actors.player.visible = false;
     this.rain = this.sim.wet ? makeRain(scene, this.sim.weather === 'typhoon') : null;
     this.camS = 0; this.camX = 0; this.shake = 0; this.fov = 62;
@@ -147,12 +151,12 @@ class Stage {
   }
 
   prebuild() {
-    this.world.prebuild(this.sim.player.s);
+    for (const w of this.worlds) w.prebuild(this.sim.player.s);
     this.actors.update(0);
   }
 
   dispose() {
-    this.world.dispose();
+    for (let i = this.worlds.length - 1; i >= 0; i--) this.worlds[i].dispose();
     this.actors.dispose();
     this.scene.traverse((o) => { if (o.isMesh && o.userData.ownMat) { o.geometry.dispose(); o.material.dispose(); } });
   }
@@ -267,11 +271,11 @@ for (const d of ['dlgSettings', 'dlgHelp']) {
   $(d).querySelector('[data-close]').addEventListener('click', () => show(d, false));
 }
 
-function pop(text, cls = 'info') {
+function pop(text, cls = 'info', long = false) {
   const el = document.createElement('div');
-  el.className = 'pop ' + cls; el.textContent = text;
+  el.className = 'pop ' + cls + (long ? ' long' : ''); el.textContent = text;
   $('popups').appendChild(el);
-  setTimeout(() => el.remove(), 950);
+  setTimeout(() => el.remove(), long ? 2650 : 950);
 }
 
 function fmtT(t) { return t.toFixed(1); }
@@ -493,7 +497,7 @@ function tick(dt) {
     sim.step(dt, null);
   }
   sim.fx.length = 0;
-  st.world.update(state === 'menu' ? st.camS : p.s, sim.clock);
+  for (const w of st.worlds) w.update(state === 'menu' ? st.camS : p.s, sim.clock);
   st.actors.update(state === 'pause' ? 0 : dt);
   if (state === 'menu') st.actors.player.visible = false;
   updateCamera(st, dt);
@@ -516,7 +520,7 @@ function tick(dt) {
 }
 
 function updateCamera(st, dt) {
-  const sim = st.sim, p = sim.player, R = sim.route;
+  const sim = st.sim, p = sim.player, R = state === 'menu' ? sim.route : p.R;
   if (state === 'menu') {
     R.toWorld(st.camS, 1.5, _p);
     R.toWorld(st.camS + 30, 0, _q);
@@ -534,7 +538,12 @@ function updateCamera(st, dt) {
   let sx = 0, sy = 0;
   if (st.shake > 0) { st.shake = Math.max(0, st.shake - dt * 2.2); const a = st.shake * st.shake * 0.35; sx = (Math.random() - 0.5) * a; sy = (Math.random() - 0.5) * a; }
   camera.position.set(_p.wx + sx, 1.95 + lift + sy, _p.wz);
-  camera.lookAt(_q.wx, 1.05, _q.wz);
+  // 摔車：視線轉向飛出去的騎士（規格 4.7）
+  const fly = st.actors.flyPos;
+  if (p.crash && fly) {
+    const w = Math.min(1, p.crash.t * 2.5) * 0.85;
+    camera.lookAt(_q.wx + (fly.x - _q.wx) * w, 1.05 + (fly.y - 1.05) * w, _q.wz + (fly.z - _q.wz) * w);
+  } else camera.lookAt(_q.wx, 1.05, _q.wz);
   const fovT = 62 + 14 * Math.min(1.3, p.v / TUNING.maxSpeed) + (p.boostT > 0 ? 6 : 0);
   st.fov += (fovT - st.fov) * Math.min(1, dt * 3);
   camera.fov = st.fov; camera.updateProjectionMatrix();
@@ -572,7 +581,7 @@ function updateEnv(st, dt) {
     const sm = smokeEv.smoke;
     const ss = sm.s - 18 + (k * 37 % 36) + Math.sin(st.sim.clock * 0.4 + sp.userData.ph) * 2;
     const xx = sm.x0 + ((k * 0.37) % 1) * (sm.x1 - sm.x0);
-    st.sim.route.toWorld(ss, xx, _p);
+    (smokeEv.R || st.sim.route).toWorld(ss, xx, _p);
     sp.position.set(_p.wx, 1.2 + (k % 3) * 0.8 + Math.sin(st.sim.clock + k) * 0.3, _p.wz);
   });
 }
@@ -626,7 +635,9 @@ function handleFx(st) {
       case 'knock': pop('撞飛！', 'bad'); audio.play('knock'); st.shake = Math.max(st.shake, 0.3); break;
       case 'pothole': audio.play('pothole'); st.shake = Math.max(st.shake, 0.55); break;
       case 'splash': audio.play('splash'); break;
-      case 'slip': pop('打滑！', 'bad'); break;
+      case 'slip': pop('打滑！', 'bad'); if (f.water) { audio.play('skid'); st.shake = Math.max(st.shake, 0.45); st.actors.splash(); } break;
+      case 'branch': st.camX += f.dx; break; // 換到分岔的另一條路：x 的原點變了，鏡頭跟著平移
+      case 'forkWarn': pop(`前方分岔：← ${f.names[0]}｜${f.names[1]} →`, 'info', true); break;
       case 'boost': audio.play('boost'); st.shake = Math.max(st.shake, 0.3); break;
       case 'charge': pop('衝刺 +1', 'near'); audio.play('charge'); break;
       case 'horn': audio.play('horn'); break;
@@ -679,7 +690,7 @@ function updateAudio(st, dt) {
   const running = state === 'play' && sim.phase !== 'countdown';
   audio.update({
     speed: state === 'play' ? p.v : 0, boost: p.boostT > 0, running: state === 'play' || state === 'pause' ? running && state === 'play' : false,
-    night: st.env.night, wet: sim.wet && state !== 'menu', market: sim.route.typeAt(p.s) === 'market' && state === 'play' ? 1 : 0,
+    night: st.env.night, wet: sim.wet && state !== 'menu', market: p.R.typeAt(p.s) === 'market' && state === 'play' ? 1 : 0,
     elise: state === 'play' ? elise : 0, drums: state === 'play' ? drums : 0, crashed: !!p.crash,
     chant: state === 'play' ? chant : 0, bass: state === 'play' ? bass : 0,
   });

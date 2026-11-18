@@ -34,6 +34,9 @@ export class Sim {
     this.level = level;
     this.route = new Route(level);
     this.L = this.route.L;
+    // 主線＋分岔裡的每條路（規格 6.6）；每個東西的 R 指向它所在的那條路
+    this.views = [this.route];
+    for (const f of this.route.forks) this.views.push(...f.views);
     this.rng = makeRng(hashStr('sim:' + level.id));
     this.rtRng = makeRng(hashStr('rt:' + level.id)); // 執行期亂數（抖動、橫向車流時機）
     this.weather = level.weather || (level.time === 'rain' ? 'rain' : null);
@@ -54,7 +57,7 @@ export class Sim {
       boostCharges: 1, boostMeter: 0, boostT: 0,
       crash: null, invuln: 0, jitter: 0, jitterDir: 1, jitterT: 0,
       near: 0, close: 0, crashes: 0, grazes: 0, maxV: 0, hornCd: 0,
-      scrapeLock: 0, wind: 0, steer: 0, brake: false,
+      scrapeLock: 0, wind: 0, steer: 0, brake: false, slipT: 0, R: this.route,
     };
     this.gust = { next: 5, t: 0, dir: 1, warn: 0 };
     this.lastTick = 11;
@@ -75,7 +78,7 @@ export class Sim {
       len: o.len ?? k.len ?? 1, wid: o.wid ?? k.wid ?? 1,
       vd: 0, tx: x, normal: false, ghost: false, stat: false,
       lights: { brake: 0, blinkL: 0, blinkR: 0, hazard: 0, door: 0 },
-      seed: (this.rng() * 1e9) | 0, ps: 0, touched: false, nearDone: false,
+      seed: (this.rng() * 1e9) | 0, ps: 0, touched: false, nearDone: false, R: this.route,
       ...o,
     };
     if (e.dir < 0 && !o.ang) e.ang = Math.PI;
@@ -83,9 +86,9 @@ export class Sim {
     return e;
   }
 
-  _vehicleSpeed(kind, s) {
+  _vehicleSpeed(kind, s, R = this.route) {
     const k = KINDS[kind];
-    const f = this.route.profileAt(s).speed;
+    const f = R.profileAt(s).speed;
     const fk = (kind === 'scooter' || kind === 'car' || kind === 'taxi' || kind === 'pickup' || kind === 'truck') ? f : Math.min(1, f);
     return this.rng.range(k.v[0], k.v[1]) * fk;
   }
@@ -104,7 +107,8 @@ export class Sim {
 
   _genTraffic() {
     const [dSame, dOpp] = this.level.dens;
-    for (const sec of this.route.sections) {
+    for (const R of this.views) for (const sec of R.sections) {
+      if (sec.type === 'fork') continue;
       const prof = PROFILES[sec.type];
       const s0 = Math.max(sec.s0, -40), s1 = Math.min(sec.s1, this.L + 80);
       const len = s1 - s0;
@@ -116,15 +120,17 @@ export class Sim {
         for (let i = 0; i < count; i++) {
           const s = this.rng.range(s0, s1);
           if (dir > 0 && s > -20 && s < 70) continue;
-          if (this.route.interAt(s, 2)) continue;
+          if (R.interAt(s, 2)) continue;
+          if (R.branch && s < R.s0 + 15) continue;
+          if (dir < 0 && this.route.forks.some((f) => s < f.s1 + 40 && s > f.s0 - 5)) continue;
           const kind = this.rng.weighted(prof.mix);
-          if (this._closures && this._closures.some((c) => s > c.s0 - 10 && s < c.s1 + 5)) continue;
+          if (R === this.route && this._closures && this._closures.some((c) => s > c.s0 - 10 && s < c.s1 + 5)) continue;
           if (kind === 'bus' && dir < 0) continue;
           const lx = this._laneFor(kind, prof, dir);
           if (lx == null) continue;
           const jit = KINDS[kind].cls === 'moto' ? this.rng.range(-0.35, 0.35) : 0;
-          const vd = this._vehicleSpeed(kind, s);
-          this._add(kind, s, lx + jit, { dir, v: vd, vd, tx: lx + jit, normal: kind !== 'oldscooter', moving: true });
+          const vd = this._vehicleSpeed(kind, s, R);
+          this._add(kind, s, lx + jit, { dir, v: vd, vd, tx: lx + jit, normal: kind !== 'oldscooter', moving: true, R });
         }
       }
       // 幹道、省道的對向車道：只看得到、碰不到（規格 6.2）
@@ -162,18 +168,24 @@ export class Sim {
 
   _genCrowds() {
     // 夜市路上逛街的人（規格 6.2 market）
-    for (const sec of this.route.sections) {
+    for (const R of this.views) for (const sec of R.sections) {
       if (sec.type !== 'market') continue;
-      const s0 = Math.max(sec.s0, 30), s1 = Math.min(sec.s1, this.L - 20);
+      const s0 = Math.max(sec.s0 + (R.branch ? 20 : 0), 30), s1 = Math.min(sec.s1, this.L - 20);
       const n = Math.round((3 + this.level.dens[0] * 1.6) * (s1 - s0) / 100);
       for (let i = 0; i < n; i++) {
         const s = this.rng.range(s0, s1);
         const x = this.rng.range(-3.3, 3.3);
         const dir = this.rng.chance(0.5) ? 1 : -1;
         this._add('ped', s, x, { dir, v: this.rng.range(0.5, 1.1), vd: 0, wander: true, moving: true,
-          phone: this.rng.chance(0.3), wphase: this.rng.range(0, 6) });
+          phone: this.rng.chance(0.3), wphase: this.rng.range(0, 6), R });
       }
     }
+  }
+
+  // s 落在分岔裡就兩條路各放一份（規格 6.6）
+  _viewsAt(s) {
+    const f = this.route.forkAt(s);
+    return f ? f.views : [this.route];
   }
 
   _genHazards() {
@@ -188,35 +200,46 @@ export class Sim {
       if (Math.abs(s - last) < 40) s = Math.min(L - 120, s + 60);
       last = s;
       if (this.route.interAt(s, 3)) s += 20;
-      const type = this.route.typeAt(s);
-      const b = this.route.bounds(s);
       const r = this.rng();
-      if (constrOK && (type === 'avenue' || type === 'highway') && r < 0.35) {
-        this._construction(s, type, b);
-      } else if (typhoon && r < 0.7) {
-        const k = this.rng.chance(0.5) ? 'sign' : 'fallen';
-        this._add(k, s, this.rng.range(b.left + 1, b.right - 1), { stat: true, len: k === 'sign' ? 1.0 : 1.8, wid: k === 'sign' ? 2.2 : 0.8, ang: this.rng.range(-0.6, 0.6) });
-      } else if (r < 0.75) {
-        // 坑洞或凸起的人孔蓋（補丁路，規格 5.5）
-        const k = this.rng.chance(0.4) ? 'bump' : 'pothole';
-        this._add(k, s, this.rng.range(b.left + 0.8, b.right - 0.8), { stat: true, len: 1.0, wid: 1.0 });
-      } else {
-        const k = this.rng.chance(0.5) ? 'box' : 'bag';
-        this._add(k, s, this.rng.range(b.left + 0.6, b.right - 0.6), { stat: true, len: 0.6, wid: 0.6 });
+      for (const R of this._viewsAt(s)) {
+        const type = R.typeAt(s);
+        const b = R.bounds(s);
+        // 施工之間至少隔 90 公尺，不然兩側一起封會把路整條堵死
+        const near = this._closures && this._closures.some((c) => s > c.s0 - 90 && s < c.s1 + 90);
+        if (constrOK && (type === 'avenue' || type === 'highway') && r < 0.35 && !near) {
+          this._construction(s, type, b);
+        } else if (typhoon && r < 0.7) {
+          const k = this.rng.chance(0.5) ? 'sign' : 'fallen';
+          this._add(k, s, this.rng.range(b.left + 1, b.right - 1), { stat: true, len: k === 'sign' ? 1.0 : 1.8, wid: k === 'sign' ? 2.2 : 0.8, ang: this.rng.range(-0.6, 0.6), R });
+        } else if (r < 0.75) {
+          // 坑洞或凸起的人孔蓋（補丁路，規格 5.5）
+          const k = this.rng.chance(0.4) ? 'bump' : 'pothole';
+          this._add(k, s, this.rng.range(b.left + 0.8, b.right - 0.8), { stat: true, len: 1.0, wid: 1.0, R });
+        } else {
+          const k = this.rng.chance(0.5) ? 'box' : 'bag';
+          this._add(k, s, this.rng.range(b.left + 0.6, b.right - 0.6), { stat: true, len: 0.6, wid: 0.6, R });
+        }
       }
     }
-    // 雨天：積水、人孔蓋
-    if (this.wet) {
-      const np = Math.round((typhoon ? 9 : 6) * L / 1000);
-      for (let i = 0; i < np; i++) {
-        const s = this.rng.range(100, L - 60);
-        const b = this.route.bounds(s);
-        this._add('puddle', s, this.rng.range(b.left + 1.2, b.right - 1.2), { stat: true, len: 3.0, wid: 1.8 });
+    // 積水（規格 5.5）：雨天每公里 6 片、颱風 9 片；晴天第 2 章起 1 片、第 4～5 章 1.5 片（水管破裂、洗車、攤販倒水）
+    const ch = this.level.ch || 1;
+    const perKm = typhoon ? 9 : this.wet ? 6 : ch >= 4 ? 1.5 : ch >= 2 ? 1 : 0;
+    const np = Math.round(perKm * L / 1000);
+    for (let i = 0; i < np; i++) {
+      const s = this.rng.range(120, L - 60);
+      const len = this.rng.range(3, 9), wid = this.rng.range(1.5, 3.5), u = this.rng(), shape = this.rng();
+      for (const R of this._viewsAt(s)) {
+        const b = R.bounds(s);
+        const w = Math.min(wid, b.right - b.left - 1.5);
+        this._add('puddle', s, b.left + w / 2 + 0.3 + u * (b.right - b.left - w - 0.6), { stat: true, len, wid: w, shape, dry: !this.wet, R });
       }
     }
     for (let s = 60; s < L; s += this.rng.range(50, 90)) {
-      const b = this.route.bounds(s);
-      this._add('manhole', s, this.rng.range(b.left + 0.8, b.right - 0.8), { stat: true, len: 0.8, wid: 0.8 });
+      const u = this.rng();
+      for (const R of this._viewsAt(s)) {
+        const b = R.bounds(s);
+        this._add('manhole', s, b.left + 0.8 + u * (b.right - b.left - 1.6), { stat: true, len: 0.8, wid: 0.8, R });
+      }
     }
   }
 
@@ -249,10 +272,11 @@ export class Sim {
     const placed = [];
     const place = (s) => { placed.push(s); };
     const tooClose = (s) => placed.some((p) => Math.abs(p - s) < 55);
-    const pickS = () => {
+    const inFork = (s) => this.route.forks.some((f) => s > f.s0 - 30 && s < f.s1 + 10);
+    const pickS = (noFork) => {
       for (let k = 0; k < 40; k++) {
         const s = this.rng.range(140, this.L - 110);
-        if (!tooClose(s)) return s;
+        if (!tooClose(s) && !(noFork && inFork(s))) return s;
       }
       return this.rng.range(140, this.L - 110);
     };
@@ -264,46 +288,65 @@ export class Sim {
     // 每種至少出現一次（新障礙一定看得到，規格 11.3）
     for (const t of pool) want.push(t);
     while (want.length < n) want.push(this.rng.pick(pool.length ? pool : types));
+    const seen = new Set();
     for (const type of want) {
+      // 新障礙第一次出現的那一次不放在分岔裡（規格 6.6）
+      const first = !seen.has(type);
+      seen.add(type);
       let s = null;
       for (let k = 0; k < 30 && s == null; k++) {
-        const c = pickS();
-        if (this._eventFits(type, c)) s = c;
+        const c = pickS(first);
+        const f = this.route.forkAt(c);
+        if (f ? f.views.some((R) => this._eventFits(type, c, R)) : this._eventFits(type, c)) s = c;
       }
       if (s == null) continue;
       place(s);
-      this.events.push(this._makeEvent(type, s));
+      const f = this.route.forkAt(s);
+      if (!f) { this.events.push(this._makeEvent(type, s)); continue; }
+      // 分岔裡：兩條路各放一個（放不進的那條路換一種放得進的）
+      for (const R of f.views) {
+        let t = type;
+        if (!this._eventFits(t, s, R)) {
+          const alt = pool.filter((x) => this._eventFits(x, s, R));
+          if (!alt.length) continue;
+          t = this.rng.pick(alt);
+        }
+        this.events.push(this._makeEvent(t, s, R));
+      }
     }
     this.events.sort((a, b) => a.s - b.s);
   }
 
-  _eventFits(type, s) {
-    const t = this.route.typeAt(s);
-    const it = this.route.interAt(s, 6);
+  _eventFits(type, s, R = this.route) {
+    const t = R.typeAt(s);
+    if (t === 'fork') return false;
+    const narrow = t === 'alley' || t === 'market' || t === 'lane';
+    const it = R.interAt(s, 6);
     switch (type) {
       case 'door': return t === 'street';
       case 'bus': return t === 'avenue';
-      case 'double': return t === 'street' || t === 'avenue';
-      case 'cutin': return t !== 'alley' && t !== 'market';
-      case 'taxi': return t !== 'alley' && t !== 'market';
-      case 'truck': return t === 'highway' || t === 'avenue';
-      case 'uturn': return t !== 'market' && !it;
-      case 'garbage': return t === 'alley' || t === 'street';
+      case 'double': return t === 'street' || t === 'avenue' || t === 'oneway';
+      case 'cutin': return !narrow;
+      case 'taxi': return !narrow;
+      case 'truck': return t === 'highway' || t === 'avenue' || t === 'oneway';
+      case 'uturn': return t !== 'market' && t !== 'lane' && !it && !R.branch;
+      case 'garbage': return t === 'alley' || t === 'street' || t === 'lane';
       case 'pullout': return t === 'street';
-      case 'walker': return t === 'street' || t === 'avenue';
-      case 'rightturn': case 'bigturn': return !!this.route.inters.find((x) => x.kind === 'cross' && !x.boundary && x.s > 120 && Math.abs(x.s - s) < 140 && (x.type === 'street' || x.type === 'avenue' || x.type === 'highway'));
-      case 'campaign': return t !== 'alley' && t !== 'market';
-      case 'drunk': case 'drugged': return t !== 'alley' && t !== 'market';
+      case 'walker': return t === 'street' || t === 'avenue' || t === 'oneway';
+      case 'rightturn': case 'bigturn': return !R.branch && !!R.inters.find((x) => x.kind === 'cross' && !x.boundary && x.s > 120 && Math.abs(x.s - s) < 140 && (x.type === 'street' || x.type === 'avenue' || x.type === 'highway') && !this.route.forkAt(x.s - 45));
+      case 'campaign': return !narrow;
+      case 'drunk': case 'drugged': return !narrow;
       case 'procession': return t === 'street' || t === 'highway';
-      case 'alley': return !!this.route.inters.find((x) => Math.abs(x.s - s) < 50);
+      case 'alley': return !!R.inters.find((x) => Math.abs(x.s - s) < 50 && x.kind === 'mouth' && !x.exit || (x.kind === 'cross' && Math.abs(x.s - s) < 50));
+      case 'wrongway': return !R.branch && !this.route.forks.some((f) => s + 180 > f.s0 - 20 && s < f.s1 + 20);
       default: return true;
     }
   }
 
-  _makeEvent(type, s) {
-    const ev = { type, s, state: 'wait', t: 0, actors: [], side: this.rng.chance(0.5) ? 1 : -1, seed: this.rng() };
+  _makeEvent(type, s, R = this.route) {
+    const ev = { type, s, state: 'wait', t: 0, actors: [], side: this.rng.chance(0.5) ? 1 : -1, seed: this.rng(), R };
     if (type === 'alley') {
-      const it = this.route.inters.reduce((best, x) => (Math.abs(x.s - s) < Math.abs(best.s - s) ? x : best));
+      const it = R.inters.filter((x) => !x.exit).reduce((best, x) => (Math.abs(x.s - s) < Math.abs(best.s - s) ? x : best));
       ev.s = it.s;
       ev.side = it.side === 'L' ? -1 : it.side === 'R' ? 1 : ev.side;
     }
@@ -316,7 +359,7 @@ export class Sim {
     }
     if (type === 'bus') ev.stop = s;
     if (type === 'rightturn' || type === 'bigturn') {
-      const its = this.route.inters.filter((x) => x.kind === 'cross' && !x.boundary && x.s > 120 && (x.type === 'street' || x.type === 'avenue' || x.type === 'highway'));
+      const its = R.inters.filter((x) => x.kind === 'cross' && !x.boundary && x.s > 120 && (x.type === 'street' || x.type === 'avenue' || x.type === 'highway'));
       const it = its.reduce((best, x) => (Math.abs(x.s - s) < Math.abs(best.s - s) ? x : best));
       ev.it = it; ev.s = it.s - 40;
     }
@@ -389,6 +432,11 @@ export class Sim {
     p.hornCd = Math.max(0, p.hornCd - dt);
     p.invuln = Math.max(0, p.invuln - dt);
     p.scrapeLock = Math.max(0, p.scrapeLock - dt);
+    p.slipT = Math.max(0, p.slipT - dt);
+    // 分岔提示（規格 2.4、6.6）
+    for (const f of this.route.forks) {
+      if (!f.warned && p.s > f.s0 - 250 && p.s < f.s0) { f.warned = true; this.fx.push({ type: 'forkWarn', names: f.names }); }
+    }
     if (p.crash) {
       const c = p.crash;
       c.t += dt;
@@ -396,7 +444,8 @@ export class Sim {
       p.s += p.v * dt;
       p.vx *= Math.max(0, 1 - 3 * dt);
       p.x += p.vx * dt;
-      const b = this.route.bounds(p.s);
+      this._transfer(p, true);
+      const b = p.R.bounds(p.s);
       p.x = Math.min(b.right - 0.4, Math.max(b.left + 0.4, p.x));
       if (c.t >= T.crashSlide + T.crashFade && !c.respawned) {
         c.respawned = true;
@@ -419,10 +468,10 @@ export class Sim {
       p.hornCd = T.hornCooldown;
       this.fx.push({ type: 'horn' });
       for (const e of this.ents) {
-        if (!e.normal || e.dir < 0 || e.ghost || e.stat) continue;
+        if (!e.normal || e.dir < 0 || e.ghost || e.stat || e.R !== p.R) continue;
         const ds = e.s - p.s;
         if (ds > 0 && ds < T.hornRange && Math.abs(e.x - p.x) < 2.5) {
-          const b = this.route.bounds(e.s);
+          const b = e.R.bounds(e.s);
           const away = e.x >= p.x ? 1 : -1;
           let tx = e.x + away * 1.2;
           const hw = e.wid / 2 + 0.15;
@@ -435,7 +484,7 @@ export class Sim {
     const top = T.maxSpeed + (p.boostT > 0 ? T.boostSpeed : 0);
     p.brake = !!inp.brake;
     if (inp.brake) {
-      p.v = Math.max(0, p.v - T.brake * dt);
+      p.v = Math.max(0, p.v - T.brake * (p.slipT > 0 ? T.slipBrake : 1) * dt);
     } else if (p.v < top) {
       const r = p.v / top;
       const a = p.boostT > 0 ? T.boostAccel : T.accel * Math.max(0.25, 1 - r * r);
@@ -454,7 +503,7 @@ export class Sim {
     p.steer = steer;
     const latMax = (T.latBase + T.latGain * Math.min(1, p.v / T.maxSpeed)) * Math.min(1, p.v / 3);
     const target = Math.max(-1.3, Math.min(1.3, steer)) * latMax;
-    p.vx += (target - p.vx) * Math.min(1, T.latResp * dt);
+    p.vx += (target - p.vx) * Math.min(1, (p.slipT > 0 ? T.slipResp : T.latResp) * dt); // 積水打滑：方向很難救（規格 5.5）
     // 颱風側風（規格 5.6）
     if (this.weather === 'typhoon') {
       const g = this.gust;
@@ -466,8 +515,9 @@ export class Sim {
     p.x += (p.vx + p.wind) * dt;
     p.s += p.v * dt;
     p.ang = p.v > 0.5 ? Math.atan2(p.vx + p.wind, p.v) : 0;
+    this._transfer(p, true);
     // 路緣
-    const b = this.route.bounds(p.s);
+    const b = p.R.bounds(p.s);
     const hw = T.bikeWid / 2;
     if (p.x < b.left + hw || p.x > b.right - hw) {
       const side = p.x < b.left + hw ? -1 : 1;
@@ -479,12 +529,13 @@ export class Sim {
   }
 
   _freeX(s, x0) {
-    const b = this.route.bounds(s);
+    const R = this.player.R;
+    const b = R.bounds(s);
     let best = x0, bestD = 1e9;
     for (let x = b.left + 0.6; x <= b.right - 0.6; x += 0.25) {
       let ok = true;
       for (const e of this.ents) {
-        if (e.ghost || e.dead || ROADFX.has(e.kind)) continue;
+        if (e.ghost || e.dead || ROADFX.has(e.kind) || e.R !== R) continue;
         if (Math.abs(e.s - s) > e.len / 2 + 5) continue;
         if (Math.abs(e.x - x) < e.wid / 2 + 0.7) { ok = false; break; }
       }
@@ -499,6 +550,7 @@ export class Sim {
     for (const ev of this.events) {
       if (ev.state === 'done') continue;
       if (ev.state === 'wait') {
+        if (ev.R.branch && p.R.branch && p.R !== ev.R) { ev.state = 'done'; continue; }
         if (p.s >= ev.s - ev.spawnAt) this._spawnEvent(ev);
         else continue;
       }
@@ -507,8 +559,8 @@ export class Sim {
     }
   }
 
-  _laneNear(x, s, dir = 1, cls = null) {
-    const prof = this.route.profileAt(s);
+  _laneNear(x, s, dir = 1, cls = null, R = this.route) {
+    const prof = R.profileAt(s);
     let best = null;
     for (const l of prof.lanes) {
       if (l.dir !== dir || (cls && l.cls !== cls)) continue;
@@ -518,14 +570,16 @@ export class Sim {
   }
 
   _spawnEvent(ev) {
-    const p = this.player, s = ev.s;
-    const b = this.route.bounds(s);
-    const prof = this.route.profileAt(s);
+    const p = this.player, s = ev.s, R = ev.R;
+    const b = R.bounds(s);
+    const prof = R.profileAt(s);
     ev.state = 'armed';
-    const A = (kind, ss, x, o) => { const e = this._add(kind, ss, x, { ev, ...o }); ev.actors.push(e); return e; };
+    const A = (kind, ss, x, o) => { const e = this._add(kind, ss, x, { ev, R, ...o }); ev.actors.push(e); return e; };
+    // 玩家所在的路的 x 換到事件那條路（分岔點前玩家還在主線）
+    const px = p.R === R ? p.x : (R.branch ? R.fromTrunkX(s, p.x) : p.x);
     switch (ev.type) {
       case 'cutin': {
-        const pl = this._laneNear(p.x, s, 1, 'car');
+        const pl = this._laneNear(px, s, 1, 'car', R);
         const lanes = prof.lanes.filter((l) => l.dir === 1 && l.cls === 'car' && Math.abs(l.x - pl) > 1);
         const lx = lanes.length ? this.rng.pick(lanes).x : (pl + (pl > 0 ? -3.2 : 3.2));
         const kind = this.rng.pick(['car', 'taxi', 'car', 'pickup']);
@@ -545,7 +599,7 @@ export class Sim {
         break;
       }
       case 'taxi': {
-        const lx = this._laneNear(b.right - 2, s, 1, 'car');
+        const lx = this._laneNear(b.right - 2, s, 1, 'car', R);
         const vd = this.rng.range(10, 12);
         A('taxi', s, lx, { v: vd, vd, tx: lx, moving: true });
         A('ped', s + 30, b.right + 1.4, { stat: true, ghost: true, waver: true });
@@ -566,7 +620,7 @@ export class Sim {
         break;
       }
       case 'wrongway': {
-        const lx = this._laneNear(p.x, s, 1);
+        const lx = this._laneNear(px, s, 1, null, R);
         A('scooter', p.s + 175, lx + 0.3, { dir: -1, v: 10, vd: 10, tx: lx, moving: true, wrong: true });
         break;
       }
@@ -577,18 +631,18 @@ export class Sim {
         break;
       }
       case 'uncle': {
-        const lx = this._laneNear(b.right - 1.5, s, 1, 'moto');
+        const lx = this._laneNear(b.right - 1.5, s, 1, 'moto', R);
         A('oldscooter', s, lx, { v: 6, vd: 6, tx: lx, moving: true, weave: this.rng.range(0, 6) });
         break;
       }
       case 'double': {
-        const lx = prof.carPark ? prof.carPark[1] - 1.9 : this._laneNear(b.right - 2.5, s, 1, 'car');
+        const lx = prof.carPark ? prof.carPark[1] - 1.9 : this._laneNear(b.right - 2.5, s, 1, 'car', R);
         A(this.rng.pick(['car', 'taxi', 'pickup']), s, lx, { stat: true, v: 0 });
         ev.actors[0].lights.hazard = 1;
         break;
       }
       case 'garbage': {
-        const lx = this._laneNear(b.right - 1.5, s, 1, 'car');
+        const lx = this._laneNear(b.right - 1.5, s, 1, 'car', R);
         const g = A('garbage', s, lx, { v: 4, vd: 4, tx: lx, moving: true });
         g.music = true;
         const n = 2 + Math.floor(this.rng() * 3);
@@ -623,7 +677,7 @@ export class Sim {
         break;
       }
       case 'truck': {
-        const lx = this._laneNear(b.right - 3, s, 1, 'car');
+        const lx = this._laneNear(b.right - 3, s, 1, 'car', R);
         A('truck', s, lx, { v: 10, vd: 10, tx: lx, moving: true, push: true });
         break;
       }
@@ -642,7 +696,7 @@ export class Sim {
         break;
       }
       case 'delivery': {
-        const lx = this._laneNear(p.x, s, 1);
+        const lx = this._laneNear(px, s, 1, null, R);
         A('scooter', s, lx, { v: 9, vd: 9, tx: lx, moving: true, cargo: 'delivery', phoneRider: true });
         break;
       }
@@ -651,12 +705,12 @@ export class Sim {
         break;
       }
       case 'drunk': {
-        const lx = this._laneNear((b.left + b.right) / 2, s, 1, 'car');
+        const lx = this._laneNear((b.left + b.right) / 2, s, 1, 'car', R);
         A(this.rng.pick(['car', 'car', 'pickup', 'taxi']), s, lx, { v: 11, vd: 11, tx: lx, moving: true, drunk: this.rng.range(0, 6) });
         break;
       }
       case 'drugged': {
-        const lx = this._laneNear((b.left + b.right) / 2, s, 1, 'car');
+        const lx = this._laneNear((b.left + b.right) / 2, s, 1, 'car', R);
         A(this.rng.pick(['car', 'car', 'pickup']), s, lx, { v: 12, vd: 12, tx: lx, moving: true, drugged: true, nextAct: 1.5 });
         break;
       }
@@ -675,8 +729,9 @@ export class Sim {
   }
 
   _runEvent(ev, dt) {
-    const p = this.player;
+    const p = this.player, R = ev.R;
     const a = ev.actors[0];
+    const px = p.R === R ? p.x : (R.branch ? R.fromTrunkX(a ? a.s : ev.s, p.x) : p.x);
     if (!a || a.dead) { ev.state = 'done'; return; }
     const gap = a.s - p.s;
     switch (ev.type) {
@@ -687,8 +742,8 @@ export class Sim {
           if (ev.t >= 0.5) {
             ev.state = 'go'; ev.t = 0;
             a.wobble = 0;
-            const tl = this._laneNear(p.x, a.s, 1, 'car');
-            a.tx = Math.abs(tl - a.x) > 0.8 ? tl : this._laneNear(p.x, a.s, 1);
+            const tl = this._laneNear(px, a.s, 1, 'car', R);
+            a.tx = Math.abs(tl - a.x) > 0.8 ? tl : this._laneNear(px, a.s, 1, null, R);
             a.latSpeed = Math.abs(a.tx - a.x) / 1.2;
           }
         }
@@ -701,7 +756,7 @@ export class Sim {
         if (ev.state === 'go') {
           const dirx = a.ang < 0 ? -1 : 1;
           a.x += dirx * 9 * dt; a.tx = a.x;
-          const b = this.route.bounds(a.s);
+          const b = R.bounds(a.s);
           if ((dirx < 0 && a.x < b.left - 8) || (dirx > 0 && a.x > b.right + 8)) { a.dead = true; ev.state = 'done'; }
         }
         break;
@@ -726,7 +781,7 @@ export class Sim {
         if (ev.state === 'warn' && gap < 45) {
           ev.state = 'go'; ev.t = 0;
           a.vd = 9; a.accel = 1.5;
-          a.tx = this._laneNear(a.x - 3, a.s, 1, 'car');
+          a.tx = this._laneNear(a.x - 3, a.s, 1, 'car', R);
           a.latSpeed = Math.abs(a.tx - a.x) / 2.5;
         }
         if (ev.state === 'go' && ev.t > 3) { ev.state = 'done'; a.lights.blinkL = 0; a.normal = true; a.latSpeed = null; }
@@ -736,7 +791,7 @@ export class Sim {
         if (ev.state === 'armed' && gap < 34) { ev.state = 'go'; ev.t = 0; this.fx.push({ type: 'tell', ev: 'ped', id: a.id }); }
         if (ev.state === 'go') {
           const sp = a.phone ? 1.0 : 1.4;
-          const b = this.route.bounds(a.s);
+          const b = R.bounds(a.s);
           const mid = (b.left + b.right) / 2;
           if (a.phone && !a.paused && Math.abs(a.x - mid) < 0.3) { a.paused = 1.0; }
           if (a.paused > 0) { a.paused -= dt; a.walking = false; if (a.paused <= 0) a.paused = -1; }
@@ -759,7 +814,7 @@ export class Sim {
         }
         if (ev.state === 'go') {
           // 往左橫越整條路，3 秒
-          const b = this.route.bounds(a.s);
+          const b = R.bounds(a.s);
           const k = Math.min(1, ev.t / 3);
           a.ang = -0.26 - (Math.PI / 2 - 0.26) * Math.min(1, ev.t / 1.2) - (k > 0.75 ? (k - 0.75) * 4 * Math.PI / 2 : 0);
           a.v = 2.5 * Math.cos(a.ang);
@@ -768,7 +823,7 @@ export class Sim {
           a.tx = a.x;
           if (a.x < b.left - 1 || ev.t > 4.5) {
             ev.state = 'done';
-            if (this.route.profileAt(a.s).twoWay) { a.dir = -1; a.ang = Math.PI; a.v = 8; a.vd = 10; a.normal = true; a.tx = this._laneNear(a.x, a.s, -1); }
+            if (R.profileAt(a.s).twoWay) { a.dir = -1; a.ang = Math.PI; a.v = 8; a.vd = 10; a.normal = true; a.tx = this._laneNear(a.x, a.s, -1, null, R); }
             else a.dead = true;
           }
         }
@@ -785,7 +840,7 @@ export class Sim {
           const want = e.chase.s - 3 + Math.sin(this.clock * 0.7 + e.wphase) * 4;
           e.v = Math.max(-1, Math.min(4.6, (want - e.s) * 1.2));
           e.x += Math.sin(this.clock * 0.9 + e.wphase * 2) * 0.6 * dt;
-          const b = this.route.bounds(e.s);
+          const b = R.bounds(e.s);
           e.x = Math.max(b.left + 0.4, Math.min(b.right - 0.4, e.x));
           e.walking = true;
           e.s += e.v * dt;
@@ -803,7 +858,7 @@ export class Sim {
             alive++;
             if (ev.t < d.delay) continue;
             d.x += d.crossDir * 3 * dt; d.walking = true; d.tx = d.x;
-            const b = this.route.bounds(d.s);
+            const b = R.bounds(d.s);
             if ((d.crossDir < 0 && d.x < b.left - 2) || (d.crossDir > 0 && d.x > b.right + 2)) d.dead = true;
           }
           if (!alive) ev.state = 'done';
@@ -825,7 +880,7 @@ export class Sim {
       case 'rightturn': case 'bigturn': {
         // 右轉車切過機車道／大車內輪差（規格 5.4）
         const it = ev.it, big = ev.type === 'bigturn';
-        const b = this.route.bounds(a.s);
+        const b = R.bounds(a.s);
         const toLine = it.s - it.half - a.s;
         if (ev.state === 'armed' && toLine < (big ? 34 : 26) && gap > -3) {
           ev.state = 'warn'; ev.t = 0;
@@ -853,8 +908,8 @@ export class Sim {
         // 外送員低頭看手機：慢慢往旁邊飄、急煞（規格 5.4）
         if (ev.state === 'armed' && gap < 35 && gap > 3) {
           ev.state = 'go'; ev.t = 0;
-          const b = this.route.bounds(a.s);
-          const dir = a.x - p.x >= 0 ? -1 : 1; // 往玩家這邊飄
+          const b = R.bounds(a.s);
+          const dir = a.x - px >= 0 ? -1 : 1; // 往玩家這邊飄
           a.tx = Math.max(b.left + 0.5, Math.min(b.right - 0.5, a.x + dir * 1.5));
           a.latSpeed = 1.5; a.vd = 3; a.hardBrake = 6;
           this.fx.push({ type: 'tell', ev: 'delivery', id: a.id });
@@ -868,14 +923,14 @@ export class Sim {
           ev.state = 'go'; ev.t = 0;
           a.stat = false; a.parked = false; a.moving = true; a.lights.brake = 0;
           a.v = 1; a.vd = 7; a.accel = 3;
-          a.tx = this._laneNear(a.x - 2, a.s, 1, 'car'); a.latSpeed = 1.6;
+          a.tx = this._laneNear(a.x - 2, a.s, 1, 'car', R); a.latSpeed = 1.6;
         }
         if (ev.state === 'go' && ev.t > 3) { ev.state = 'done'; a.normal = true; a.latSpeed = null; }
         break;
       }
       case 'drunk': {
-        // 酒駕：大幅蛇行、時快時慢
-        const b = this.route.bounds(a.s);
+        // 酒駕：大幅蛇行、時快時慢（遇到施工會在剩下的車道裡蛇行）
+        const b = this._openBounds(a, R);
         const mid = (b.left + b.right) / 2, amp = Math.min(2.4, (b.right - b.left) / 2 - 1.1);
         a.tx = mid + Math.sin(this.clock * 2 * Math.PI / 2.4 + a.drunk) * amp;
         a.latSpeed = 2.8;
@@ -890,7 +945,7 @@ export class Sim {
         if (a.nextAct <= 0) {
           a.nextAct = this.rng.range(1.5, 3);
           const r = this.rng();
-          const b = this.route.bounds(a.s);
+          const b = this._openBounds(a, R);
           if (r < 0.35) { a.vd = 3; a.hardBrake = 9; a.lights.brake = 1; }
           else if (r < 0.6) { a.vd = 16; a.hardBrake = 0; a.accel = 6; }
           else { a.tx = Math.max(b.left + 1.1, Math.min(b.right - 1.1, a.x + (this.rng() < 0.5 ? -2.5 : 2.5))); a.latSpeed = 3.5; a.vd = 11; }
@@ -909,11 +964,22 @@ export class Sim {
     }
   }
 
+  // 可騎範圍扣掉前方 40 公尺內的施工封路（給蛇行的三寶用）
+  _openBounds(a, R) {
+    const b = { ...R.bounds(a.s) };
+    if (R !== this.route || !this._closures) return b;
+    for (const c of this._closures) {
+      if (c.s1 < a.s - 5 || c.s0 > a.s + 40) continue;
+      if ((c.x0 + c.x1) / 2 < (b.left + b.right) / 2) b.left = Math.max(b.left, c.x1 + 0.4);
+      else b.right = Math.min(b.right, c.x0 - 0.4);
+    }
+    return b;
+  }
+
   // ---------- 車流（規格 5.2、5.3） ----------
   _updateTraffic(dt, countdown) {
     const p = this.player;
     const lo = p.s - 80, hi = p.s + 420;
-    const route = this.route;
     // 回收落後的
     if (this._gc === undefined) this._gc = 0;
     this._gc += dt;
@@ -934,7 +1000,7 @@ export class Sim {
         // 夜市逛街的人
         e.s += e.dir * e.v * dt;
         e.x += Math.sin(this.clock * 0.5 + e.wphase) * (e.walker ? 0.15 : 0.35) * dt;
-        const b = route.bounds(e.s);
+        const b = e.R.bounds(e.s);
         if (e.walker) e.x = Math.max(b.right - 1.3, e.x);
         e.x = Math.max(b.left + 0.3, Math.min(b.right - 0.3, e.x));
         e.ang = e.dir > 0 ? 0 : Math.PI;
@@ -943,6 +1009,7 @@ export class Sim {
       }
       if (e.kind === 'proc') { e.s += e.v * dt; continue; }
       if (e.cross) continue; // 橫向車流：等速通過（在 _spawnCross 移動）
+      if (this._exitTurn(e, dt)) continue;
       if (think && !e.ev) this._think(e);
       if (think && e.ev && e.moving && e.kind !== 'ped' && e.kind !== 'dog') this._think(e);
       // 速度
@@ -967,18 +1034,64 @@ export class Sim {
       }
       if (e.wobble) e.xDraw = e.x + e.wobble; else e.xDraw = e.x;
       if (e.yield) { e.yield -= dt; if (e.yield <= 0) e.yield = 0; }
+      this._transfer(e, false);
     }
+  }
+
+  // 分岔點、合流點：換到另一條路（規格 6.6）。x 換算成新那條路的座標
+  _transfer(e, isPlayer) {
+    const R = e.R;
+    if (R.branch) {
+      if (e.s >= R.s1 || e.s < R.s0) {
+        const at = e.s >= R.s1 ? R.s1 : R.s0;
+        const dx = R.toTrunkX(at, 0);
+        e.x += dx; if (e.tx != null) e.tx += dx; if (e.xDraw != null) e.xDraw += dx;
+        e.R = this.route;
+        if (e.dir < 0 && !isPlayer) e.dead = true;
+        if (isPlayer) this.fx.push({ type: 'branch', dx });
+        else if (e.normal && !e.ev) e.tx = this._laneNear(e.x, e.s + 20, e.dir, KINDS[e.kind]?.cls === 'moto' ? 'moto' : 'car');
+      }
+      return;
+    }
+    const f = this.route.forkAt(e.s);
+    if (!f) return;
+    if (!isPlayer && (e.dir < 0 || e.oppSide || e.cross)) { e.dead = true; return; }
+    let br = e.x < f.divide ? f.Lv : f.Rv;
+    if (!isPlayer && KINDS[e.kind]?.cls === 'car') br = f.Rv; // 汽車不進夜市與巷子
+    const dx = -br.toTrunkX(e.s, 0);
+    e.x += dx; if (e.tx != null) e.tx += dx; if (e.xDraw != null) e.xDraw += dx;
+    e.R = br;
+    if (isPlayer) this.fx.push({ type: 'branch', dx, side: br.branch });
+    else if (!e.ev || e.normal) { e.tx = this._laneNear(e.x, e.s, 1, KINDS[e.kind]?.cls === 'moto' ? 'moto' : null, br); e.avoid = 0; }
+  }
+
+  // 合流後的雙向路：對向車在合流點前右轉進巷口離開（規格 6.6）
+  _exitTurn(e, dt) {
+    if (e.exitT == null) {
+      if (e.R !== this.route || e.dir > 0 || e.ghost || e.ev) return false;
+      const f = this.route.forks.find((q) => q.exit && e.s < q.exit + 2 && e.s > q.s1 - 5);
+      if (!f) return false;
+      e.exitT = 0; e.sideways = true; e.exitV = Math.max(4, e.v);
+    }
+    e.exitT += dt;
+    const k = Math.min(1, e.exitT / 1.2);
+    e.ang = Math.PI + k * Math.PI / 2;
+    e.s -= e.exitV * (1 - k) * dt;
+    e.x -= e.exitV * k * dt;
+    e.tx = e.x; e.xDraw = e.x;
+    if (e.x < this.route.bounds(e.s).left - 14) e.dead = true;
+    return true;
   }
 
   _think(e) {
     const p = this.player;
-    const route = this.route;
+    const route = e.R;
     // 跨路段：車道不見了就換到新路段最近的車道；對向車進到單向路段就轉進路口消失
     const prof = route.profileAt(e.s);
     if (!e.ghost && !e.ev) {
       if (e.dir < 0 && !prof.twoWay) { e.dead = true; return; }
       const hasLane = prof.lanes.some((l) => l.dir === e.dir && Math.abs(l.x - e.tx) < 0.6);
-      if (!hasLane && !e.yield && !e.avoid) e.tx = this._laneNear(e.tx, e.s, e.dir, KINDS[e.kind]?.cls === 'moto' ? 'moto' : 'car');
+      if (!hasLane && !e.yield && !e.avoid) e.tx = this._laneNear(e.tx, e.s, e.dir, KINDS[e.kind]?.cls === 'moto' ? 'moto' : 'car', route);
     }
     if (e.ghost) {
       if (e.oppSide) {
@@ -993,7 +1106,7 @@ export class Sim {
     let lead = null, leadGap = 1e9;
     const hwE = halfW(e);
     for (const o of this.active || this.ents) {
-      if (o === e || o.dead || o.ghost || ROADFX.has(o.kind)) continue;
+      if (o === e || o.dead || o.ghost || ROADFX.has(o.kind) || o.R !== e.R) continue;
       if (o.moving && !o.sideways && !o.cross && o.kind !== "ped" && o.kind !== "dog" && o.kind !== "proc" && (o.dir || 1) !== e.dir) continue; // 對向車不當前車（窄巷會車）
       const ds = (o.s - e.s) * e.dir;
       if (ds <= 0 || ds > look) continue;
@@ -1004,10 +1117,15 @@ export class Sim {
     // 玩家
     if (!p.crash || true) {
       const ds = (p.s - e.s) * e.dir;
-      if (e.dir > 0 && ds > 0 && ds < look && Math.abs(p.x - e.x) < hwE + T.bikeWid / 2 + 0.2) {
+      if (e.dir > 0 && p.R === e.R && ds > 0 && ds < look && Math.abs(p.x - e.x) < hwE + T.bikeWid / 2 + 0.2) {
         const g = ds - (e.len + T.bikeLen) / 2;
         if (g < leadGap) { leadGap = g; lead = { v: p.v, dir: 1, s: p.s, x: p.x, player: true, stat: false }; }
       }
+    }
+    // 路上的紙箱、垃圾袋、三角錐：車子直接撞開，不會停在後面等（不然三寶車會卡死整條路）
+    if (lead && SMALL.has(lead.kind) && leadGap < 3) {
+      lead.knocked = true; lead.knockV = Math.max(4, e.v + 3); lead.knockT = 0;
+      lead = null;
     }
     let lim = 1e9;
     if (lead) {
@@ -1021,9 +1139,14 @@ export class Sim {
         if (e.stuck > 1.0) { this._avoid(e, lead); e.stuckTotal = (e.stuckTotal || 0) + e.stuck; e.stuck = 0; }
         if ((e.stuckTotal || 0) > 3 && Math.abs(e.s - p.s) > 35) e.dead = true;
       } else e.stuck = 0;
+      // 三寶車卡在靜止物後面太久：在玩家看不到的距離轉進巷子消失（規格 5.2）
+      if (!e.normal && lead.stat && !lead.player && leadGap < 14 && e.v < 1) {
+        e.stuckEv = (e.stuckEv || 0) + 0.05;
+        if (e.stuckEv > 4 && Math.abs(e.s - p.s) > 35) e.dead = true;
+      } else e.stuckEv = 0;
     }
     // 前方 60 m 自己的車道被施工封住：提早換道（規格 5.5）
-    if (e.normal && this._closures && e.dir > 0 && !e.avoid) {
+    if (e.normal && this._closures && e.dir > 0 && !e.avoid && e.R === this.route) {
       for (const c of this._closures) {
         const d = c.s0 - e.s;
         if (d > 0 && d < 60 && e.tx > c.x0 - 0.8 && e.tx < c.x1 + 0.8) {
@@ -1054,8 +1177,8 @@ export class Sim {
   }
 
   _avoid(e, lead) {
-    const b = this.route.bounds(e.s);
-    const prof = this.route.profileAt(e.s);
+    const b = e.R.bounds(e.s);
+    const prof = e.R.profileAt(e.s);
     const hw = halfW(e);
     const cands = prof.lanes.filter((l) => l.dir === e.dir && Math.abs(l.x - e.x) > 0.8).map((l) => l.x);
     cands.push(lead.x - (halfW(lead) + hw + 0.4), lead.x + (halfW(lead) + hw + 0.4));
@@ -1064,7 +1187,7 @@ export class Sim {
       if (x - hw < b.left + 0.1 || x + hw > b.right - 0.1) continue;
       let ok = true;
       for (const o of this.active) {
-        if (o === e || o.ghost || o.dead || ROADFX.has(o.kind)) continue;
+        if (o === e || o.ghost || o.dead || ROADFX.has(o.kind) || o.R !== e.R) continue;
         if (Math.abs(o.s - e.s) > 14) continue;
         if (Math.abs(o.x - x) < halfW(o) + hw + 0.2) { ok = false; break; }
       }
@@ -1112,7 +1235,7 @@ export class Sim {
     if (p.crash) return;
     const pr = { s: p.s, x: p.x, len: T.bikeLen, wid: T.bikeWid, ang: 0 }; // 碰撞框不隨車頭轉（街機手感）
     for (const e of this.active) {
-      if (e.dead) continue;
+      if (e.dead || e.R !== p.R) continue;
       const ds = e.s - p.s;
       // 擦身而過（玩家從它旁邊超過，或交會）
       if (VEHICLE.has(e.kind) && !e.oppSide) {
@@ -1158,12 +1281,24 @@ export class Sim {
 
   _roadFx(e) {
     const p = this.player;
+    if (e.kind === 'puddle') {
+      // 積水打滑（規格 5.5）：在水面上一直滑；第一次騎進去往隨機一側甩
+      if (Math.abs(e.s - p.s) > e.len / 2 + 0.3 || Math.abs(e.x - p.x) > e.wid / 2 + 0.15) return;
+      p.slipT = T.slipAfter;
+      if (!e.used) {
+        e.used = true;
+        const dir = this.rtRng() < 0.5 ? -1 : 1;
+        p.vx += dir * (1.5 + 2.0 * Math.min(1.4, p.v / T.maxSpeed));
+        p.v *= 0.95;
+        this.fx.push({ type: 'slip', dir, water: true });
+      }
+      return;
+    }
     if (e.used) return;
     if (Math.abs(e.s - p.s) > e.len / 2 + 0.6) return;
     if (Math.abs(e.x - p.x) > e.wid / 2 + 0.3) return;
     e.used = true;
     if (e.kind === 'pothole' || e.kind === 'bump') { p.v *= 0.9; p.jitter = 0.4; this.fx.push({ type: 'pothole' }); }
-    else if (e.kind === 'puddle') { p.v *= 0.92; this.fx.push({ type: 'splash' }); }
     else if (e.kind === 'manhole' && this.wet) { p.jitter = 0.3; this.fx.push({ type: 'slip' }); }
   }
 
@@ -1180,7 +1315,7 @@ export class Sim {
 
   _crash(e) {
     const p = this.player;
-    p.crash = { t: 0, by: e.kind };
+    p.crash = { t: 0, by: e.kind, v0: p.v, side: p.x >= e.x ? 1 : -1 };
     p.crashes++;
     p.boostT = 0;
     p.vx = (p.x >= e.x ? 1 : -1) * 2;

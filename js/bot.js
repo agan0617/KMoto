@@ -9,7 +9,7 @@ export const SKILLS = {
   novice: { react: 0.6, margin: 0.12, look: 70 },
 };
 
-const SKIP = new Set(['manhole', 'puddle']);
+const SKIP = new Set(['manhole', 'puddle']); // 積水不煞車，只在挑路線時盡量避開
 
 export class Bot {
   constructor(sim, skill = 'normal', seed = 1) {
@@ -27,6 +27,9 @@ export class Bot {
     const v = Math.max(p.v, 6);
     for (const e of ents) {
       if (e.ghost || e.dead || e.knocked || SKIP.has(e.kind)) continue;
+      // 別條路上的東西：玩家還在主線（快到分岔點）時換算成主線座標看，其他情況不管
+      let off = 0;
+      if (e.R !== p.R) { if (p.R.branch || !e.R.branch) continue; off = e.R.toTrunkX(e.s, 0); }
       const ds = e.s - p.s;
       if (ds < -2 || ds > this.k.look) continue;
       const evs = e.sideways ? 0 : (e.dir || 1) * (e.v || 0) * Math.cos(e.ang || 0);
@@ -34,7 +37,7 @@ export class Bot {
       const lenSum = (e.len + T.bikeLen) / 2;
       let t = rel > 0.5 ? Math.max(0, (ds - lenSum) / rel) : (ds - lenSum <= 0 ? 0 : 99);
       if (t > 8) continue;
-      let ex = e.xDraw ?? e.x;
+      let ex = (e.xDraw ?? e.x) + off;
       if (e.cross) ex += e.cross * e.v * t;
       else if (e.ev && (e.ev.state === 'go' || e.ev.state === 'warn' || e.ev.state === 'armed') && (e.kind === 'ped' || e.kind === 'dog') && e.crossDir && !e.walker) ex += e.crossDir * (e.kind === 'dog' ? 3 : 1.2) * Math.max(0, t - (e.ev.state === 'go' ? 0 : 0.6));
       const w = halfW(e) + T.bikeWid / 2 + this.k.margin + (e.kind === 'pothole' ? -0.3 : 0);
@@ -42,7 +45,7 @@ export class Bot {
       let hit = Math.abs(x - ex) < w;
       if (!hit && (e.cross || (e.kind === 'ped' && e.ev))) {
         for (const dt of [-0.4, 0.4]) {
-          let ex2 = e.x;
+          let ex2 = e.x + off;
           if (e.cross) ex2 += e.cross * e.v * (t + dt);
           else if (e.crossDir && e.ev && e.ev.state === 'go') ex2 += e.crossDir * 1.2 * (t + dt);
           if (Math.abs(x - ex2) < w) hit = true;
@@ -59,7 +62,7 @@ export class Bot {
     if (sim.phase !== 'run' || p.crash) return inp;
     this.wait -= dt;
     const ents = sim.active || sim.ents;
-    const b = sim.route.bounds(p.s + 8);
+    const b = p.R.bounds(p.s + 8);
     if (this.wait <= 0) {
       this.wait = this.k.react * (0.8 + 0.4 * this.rng());
       let best = p.x, bestScore = -1e9, bestFree = 0;
@@ -69,12 +72,20 @@ export class Bot {
         // 橫移路上有東西擋著就扣分
         let block = 0;
         for (const e of ents) {
-          if (e.ghost || e.dead || SKIP.has(e.kind) || e.kind === 'pothole') continue;
+          if (e.ghost || e.dead || SKIP.has(e.kind) || e.kind === 'pothole' || e.R !== p.R) continue;
           if (Math.abs(e.s - p.s) > e.len / 2 + 2.2) continue;
           const lo = Math.min(p.x, x), hi = Math.max(p.x, x);
           if (e.x + halfW(e) > lo + 0.2 && e.x - halfW(e) < hi - 0.2) block = 60;
         }
-        const score = f - 5 * Math.abs(x - p.x) - block;
+        // 積水：會打滑，能避就避（不為它煞車）
+        let wet = 0;
+        for (const e of ents) {
+          if (e.kind !== 'puddle' || e.R !== p.R || e.used) continue;
+          const ds = e.s - p.s;
+          if (ds < -e.len / 2 || ds > 70) continue;
+          if (Math.abs(e.x - x) < e.wid / 2 + 0.6) wet = 25;
+        }
+        const score = f - 5 * Math.abs(x - p.x) - block - wet;
         if (score > bestScore) { bestScore = score; best = x; bestFree = f; }
       }
       this.target = best;
